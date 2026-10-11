@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+save_dir="$(xdg-user-dir PICTURES)/Screenshots"
+save_file="$save_dir/$(date +%y%m%d_%Hh%Mm%Ss_screenshot.png)"
+capture="$XDG_RUNTIME_DIR/screenshot.png"
+mkdir -p "$save_dir"
+
+visible_windows() {
+    local workspaces
+    workspaces=$(hyprctl monitors -j | jq -c '[.[] | .activeWorkspace.id, .specialWorkspace.id]')
+    hyprctl clients -j | jq -r --argjson visible "$workspaces" \
+        '.[] | select(.mapped and (.hidden | not) and (.workspace.id as $id | $visible | index($id)))
+             | "\(.at[0]),\(.at[1]) \(.size[0])x\(.size[1])"'
+}
+
+select_region() {
+    local colors
+    read -r -a colors < "${XDG_STATE_HOME:-$HOME/.local/state}/rice/slurp-args"
+    visible_windows | slurp "${colors[@]}"
+}
+
+if [[ "${1:-}" == "edit-last" ]]; then
+    latest=""
+    for file in "$save_dir"/*.png; do
+        [[ -e "$file" ]] || continue
+        if [[ -z "$latest" || "$file" -nt "$latest" ]]; then
+            latest=$file
+        fi
+    done
+    [[ -n "$latest" ]] || { notify-send -a Screenshot "No screenshots yet"; exit 1; }
+    exec satty -f "$latest" -o "$latest"
+fi
+
+case "${1:-}" in
+    region)
+        grim -g "$(select_region)" "$capture"
+        ;;
+    frozen)
+        hyprpicker -r -z &
+        picker=$!
+        sleep 0.2
+        region=$(select_region) || { kill "$picker"; exit 1; }
+        grim -g "$region" "$capture"
+        kill "$picker"
+        ;;
+    monitor)
+        grim -o "$(hyprctl activeworkspace -j | jq -r .monitor)" "$capture"
+        ;;
+    *)
+        echo "usage: screenshot region|frozen|monitor|edit-last" >&2
+        exit 2
+        ;;
+esac
+
+cp "$capture" "$save_file"
+wl-copy < "$save_file"
+
+action=$(notify-send -a Screenshot -i "$save_file" -A default=Edit "Screenshot copied" "Click to edit · ${save_file##*/}") || true
+if [[ "$action" == "default" ]]; then
+    satty -f "$save_file" -o "$save_file"
+fi

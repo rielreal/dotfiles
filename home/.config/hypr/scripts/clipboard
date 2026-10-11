@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+pick_entry() {
+    cliphist list | rofi -dmenu -i -p "$1" -display-columns 2
+}
+
+case "${1:-paste}" in
+    paste)
+        pick_entry clipboard | cliphist decode | wl-copy
+        ;;
+    manage)
+        action=$(printf '%s\n' "Delete entry" "Wipe history" | rofi -dmenu -i -p clipboard)
+        case "$action" in
+            "Delete entry") pick_entry delete | cliphist delete ;;
+            "Wipe history") cliphist wipe ;;
+        esac
+        ;;
+    *)
+        echo "usage: clipboard paste|manage" >&2
+        exit 2
+        ;;
+esac

@@ -1,0 +1,157 @@
+@import "colors.css";
+
+* {
+    font-family: "Rubik", "Material Symbols Rounded";
+    font-size: 13px;
+    font-weight: 500;
+    border: none;
+    border-radius: 0;
+    min-height: 0;
+}
+
+window#waybar {
+    background: @glass;
+    border: 1px solid @edge;
+    border-radius: 12px;
+    color: @text;
+}
+
+label.module,
+#workspaces button {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.55);
+}
+
+tooltip {
+    background: rgba(24, 14, 19, 0.92);
+    border: 1px solid @edge;
+    border-radius: 10px;
+}
+
+tooltip label {
+    color: @text;
+    text-shadow: none;
+}
+
+.modules-left {
+    margin-left: 6px;
+}
+
+.modules-right {
+    margin-right: 6px;
+}
+
+label.module {
+    margin: 5px 3px;
+    padding: 0 10px;
+    border-radius: 8px;
+}
+
+#custom-launcher {
+    color: @petal;
+    padding: 0 12px 0 8px;
+}
+
+#workspaces {
+    margin: 5px 4px;
+    padding: 0 4px;
+    background: @pill;
+    border-radius: 8px;
+}
+
+#workspaces button {
+    color: @muted;
+    padding: 0 5px;
+    margin: 4px 1px;
+    border-radius: 6px;
+    background: transparent;
+    transition: all 0.25s ease;
+}
+
+#workspaces button.visible {
+    color: @ember;
+}
+
+#workspaces button.active {
+    color: @petal;
+    background: alpha(@petal, 0.22);
+    padding: 0 12px;
+}
+
+#workspaces button.urgent {
+    color: @gold;
+}
+
+#workspaces button:hover {
+    color: @text;
+    background: @pillHover;
+    box-shadow: none;
+}
+
+#taskbar {
+    margin: 5px 4px;
+    padding: 0 3px;
+    background: @pill;
+    border-radius: 8px;
+}
+
+#taskbar button {
+    padding: 0 6px;
+    margin: 3px 1px;
+    border-radius: 6px;
+    background: transparent;
+    transition: all 0.2s ease;
+}
+
+#taskbar button.active {
+    background: alpha(@petal, 0.22);
+}
+
+#taskbar button:hover {
+    background: @pillHover;
+    box-shadow: none;
+}
+
+#window {
+    color: @blush;
+    font-weight: 400;
+}
+
+#clock {
+    color: @text;
+    background: @pill;
+}
+
+#mpris {
+    color: @blush;
+    background: @pill;
+}
+
+#mpris.paused {
+    color: @muted;
+}
+
+#network {
+    color: @text;
+    background: alpha(@petal, 0.35);
+}
+
+#tray {
+    padding: 0 8px;
+}
+
+#tray > .needs-attention {
+    background: alpha(@petal, 0.3);
+    border-radius: 6px;
+}
+
+#custom-power {
+    color: @petal;
+    padding: 0 10px 0 8px;
+}
+
+#custom-launcher:hover,
+#custom-power:hover,
+#clock:hover,
+#mpris:hover {
+    background: @pillHover;
+}

@@ -1,0 +1,75 @@
+@import url("rice-colors.css");
+
+:root {
+  scrollbar-color: var(--rice-scrollbar) transparent;
+}
+
+@-moz-document regexp("about:(?!blank|srcdoc).*") {
+  :root,
+  body {
+    --background-color-canvas: var(--rice-base) !important;
+    --background-color-box: var(--rice-surface) !important;
+    --text-color: var(--rice-text) !important;
+    --text-color-deemphasized: var(--rice-muted) !important;
+    --border-color: var(--rice-line) !important;
+    --border-color-card: var(--rice-line) !important;
+    --color-accent-primary: var(--rice-petal) !important;
+    --color-accent-primary-hover: var(--rice-blush) !important;
+    --color-accent-primary-active: var(--rice-ember) !important;
+    --focus-outline-color: var(--rice-petal) !important;
+    --button-text-color-primary: var(--rice-on-accent) !important;
+    --button-text-color-primary-hover: var(--rice-on-accent) !important;
+    --button-text-color-primary-active: var(--rice-on-accent) !important;
+    --in-content-page-background: var(--rice-base) !important;
+    --in-content-box-background: var(--rice-surface) !important;
+    --in-content-page-color: var(--rice-text) !important;
+    --newtab-background-color: var(--rice-base) !important;
+    --newtab-background-color-secondary: var(--rice-surface) !important;
+    --newtab-text-primary-color: var(--rice-text) !important;
+    --newtab-text-secondary-color: var(--rice-soft) !important;
+    --newtab-primary-action-background: var(--rice-petal) !important;
+  }
+
+  body {
+    font-family: "Rubik", sans-serif;
+  }
+}
+
+
+@-moz-document url("about:newtab"), url("about:home") {
+  :root,
+  body {
+    --newtab-background-card: color-mix(in srgb, var(--rice-crust) 62%, transparent) !important;
+    --newtab-background-color-secondary: color-mix(in srgb, var(--rice-crust) 72%, transparent) !important;
+    --newtab-weather-background-color: color-mix(in srgb, var(--rice-crust) 62%, transparent) !important;
+    --newtab-primary-action-background-dimmed: var(--rice-selected) !important;
+    --newtab-element-hover-color: var(--rice-hover) !important;
+  }
+
+  body {
+    background-color: var(--rice-crust) !important;
+    background-image:
+      linear-gradient(color-mix(in srgb, var(--rice-crust) 35%, transparent), color-mix(in srgb, var(--rice-crust) 75%, transparent)),
+      url("wallpaper") !important;
+    background-size: cover !important;
+    background-position: center !important;
+    background-attachment: fixed !important;
+  }
+
+  .logo-and-wordmark-wrapper,
+  .logo-and-wordmark {
+    display: none !important;
+  }
+
+  .search-wrapper content-search-handoff-ui,
+  .search-wrapper .search-inner-wrapper moz-urlbar {
+    backdrop-filter: blur(14px);
+    border-radius: 14px;
+  }
+
+  .top-site-outer .tile {
+    backdrop-filter: blur(10px);
+    box-shadow: none !important;
+    border: 1px solid var(--rice-hover);
+  }
+}

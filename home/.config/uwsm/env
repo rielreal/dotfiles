@@ -1,0 +1,12 @@
+export PATH="$HOME/.local/bin:$PATH"
+export LESSHISTFILE="${LESSHISTFILE:-/tmp/less-hist}"
+export PARALLEL_HOME="${XDG_CONFIG_HOME:-$HOME/.config}/parallel"
+export QT_QPA_PLATFORM=wayland
+export QT_AUTO_SCREEN_SCALE_FACTOR=1
+export QT_WAYLAND_DISABLE_WINDOWDECORATION=1
+export QT_QPA_PLATFORMTHEME=qt6ct
+export MOZ_ENABLE_WAYLAND=1
+export GDK_SCALE=1
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export XCURSOR_THEME=Bibata-Modern-Ice
+export XCURSOR_SIZE=24

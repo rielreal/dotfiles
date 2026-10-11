@@ -1,0 +1,44 @@
+@import "colors.css";
+
+window#osd {
+    border-radius: 16px;
+    border: 1px solid @edge;
+    background: alpha(@wine, 0.35);
+    font-family: "Rubik";
+}
+
+window#osd #container {
+    margin: 14px 20px;
+}
+
+window#osd image,
+window#osd label {
+    color: @text;
+}
+
+window#osd progressbar:disabled,
+window#osd image:disabled {
+    opacity: 0.45;
+}
+
+window#osd progressbar {
+    min-height: 6px;
+    min-width: 200px;
+    border-radius: 999px;
+    background: transparent;
+    border: none;
+}
+
+window#osd trough {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background: alpha(@text, 0.15);
+}
+
+window#osd progress {
+    min-height: inherit;
+    border-radius: inherit;
+    border: none;
+    background: @petal;
+}

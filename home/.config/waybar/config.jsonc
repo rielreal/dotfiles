@@ -1,0 +1,106 @@
+{
+    "layer": "top",
+    "position": "top",
+    "height": 34,
+    "margin-top": 6,
+    "margin-left": 8,
+    "margin-right": 8,
+    "spacing": 0,
+    "exclusive": true,
+    "reload_style_on_change": true,
+    "modules-left": [
+        "custom/launcher",
+        "hyprland/workspaces",
+        "wlr/taskbar",
+        "mpris"
+    ],
+    "modules-center": [
+        "clock"
+    ],
+    "modules-right": [
+        "network",
+        "tray",
+        "custom/power"
+    ],
+    "custom/launcher": {
+        "format": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span>",
+        "tooltip": false,
+        "on-click": "pkill -x rofi || rofi -show drun",
+        "on-click-right": "pkill -x rofi || ~/.config/hypr/scripts/wallpaper",
+        "escape": false
+    },
+    "hyprland/workspaces": {
+        "format": "{icon}",
+        "format-icons": {
+            "default": "●"
+        },
+        "on-scroll-up": "hyprctl dispatch workspace r-1",
+        "on-scroll-down": "hyprctl dispatch workspace r+1"
+    },
+    "clock": {
+        "format": "{:%a %d %b  %I:%M %p}",
+        "format-alt": "{:%H:%M:%S}",
+        "interval": 1,
+        "tooltip-format": "<tt>{calendar}</tt>",
+        "calendar": {
+            "mode": "month",
+            "on-scroll": 1,
+            "format": {
+                "months": "<span color='#ebbcba'><b>{}</b></span>",
+                "weekdays": "<span color='#f6c177'><b>{}</b></span>",
+                "today": "<span color='#eb6f92'><b><u>{}</u></b></span>"
+            }
+        },
+        "actions": {
+            "on-scroll-up": "shift_up",
+            "on-scroll-down": "shift_down"
+        }
+    },
+    "mpris": {
+        "format": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span> {title} · {artist}",
+        "format-paused": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span> <i>{title} · {artist}</i>",
+        "title-len": 30,
+        "artist-len": 18,
+        "ellipsis": "…",
+        "tooltip-format": "{title}\n{artist} — {album}",
+        "on-click": "playerctl play-pause",
+        "on-scroll-up": "playerctl next",
+        "on-scroll-down": "playerctl previous"
+    },
+    "tray": {
+        "icon-size": 15,
+        "spacing": 8
+    },
+    "custom/power": {
+        "format": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span>",
+        "tooltip": false,
+        "on-click": "pkill -x rofi || ~/.config/hypr/scripts/powermenu",
+        "escape": false
+    },
+    "network": {
+        "format-ethernet": "",
+        "format-wifi": "",
+        "format-linked": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span> no internet",
+        "format-disconnected": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span> offline",
+        "tooltip-format-disconnected": "No network connection",
+        "on-click": "uwsm app -- nm-connection-editor",
+        "interval": 5
+    },
+    "wlr/taskbar": {
+        "format": "{icon}",
+        "icon-size": 18,
+        "icon-theme": "Papirus-Rice",
+        "all-outputs": false,
+        "tooltip-format": "{title}",
+        "on-click": "activate",
+        "on-click-middle": "close",
+        "ignore-list": [
+            "kittypreview"
+        ],
+        "app_ids-mapping": {
+            "firefoxdeveloperedition": "firefox-developer-edition",
+            "Polinex Fabric": "minecraft",
+            "jetbrains-idea": "intellij-idea-ultimate"
+        }
+    }
+}

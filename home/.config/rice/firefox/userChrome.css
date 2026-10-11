@@ -1,0 +1,177 @@
+@import url("rice-colors.css");
+
+:root,
+:root[lwtheme] {
+  --lwt-accent-color: var(--rice-crust) !important;
+  --lwt-accent-color-inactive: var(--rice-crust) !important;
+  --lwt-text-color: var(--rice-soft) !important;
+  --toolbox-background-color: var(--rice-crust) !important;
+  --toolbox-background-color-inactive: var(--rice-crust) !important;
+  --toolbox-text-color: var(--rice-soft) !important;
+  --toolbox-background-gradient: linear-gradient(96deg, color-mix(in srgb, var(--rice-petal) 8%, transparent), transparent 55%, color-mix(in srgb, var(--rice-ember) 5%, transparent)) !important;
+  --toolbar-background-color: var(--rice-crust) !important;
+  --toolbar-text-color: var(--rice-text) !important;
+  --text-color-deemphasized: var(--rice-muted) !important;
+
+  --tab-background-color-hover: var(--rice-hover) !important;
+  --tab-background-color-selected: var(--rice-surface) !important;
+  --tab-text-color-selected: var(--rice-text) !important;
+  --tab-border-color-selected: var(--rice-edge) !important;
+  --tab-border-color-selected-leading: var(--rice-petal) !important;
+  --tab-border-color-selected-trailing: var(--rice-ember) !important;
+  --tab-box-shadow-selected: none !important;
+  --tab-icon-fill-loading: var(--rice-petal) !important;
+  --lwt-tab-line-color: var(--rice-petal) !important;
+  --lwt-background-tab-separator-color: transparent !important;
+  --tabs-navbar-separator-color: transparent !important;
+  --chrome-content-separator-color: transparent !important;
+  --toolbarseparator-color: var(--rice-line) !important;
+  --tab-border-radius: 9px !important;
+
+  --toolbarbutton-border-radius: 9px !important;
+  --toolbarbutton-icon-fill: var(--rice-soft) !important;
+  --toolbarbutton-icon-fill-attention: var(--rice-petal) !important;
+  --toolbarbutton-background-color-hover: var(--rice-hover) !important;
+  --toolbarbutton-background-color-active: var(--rice-selected) !important;
+
+  --toolbar-field-background-color: var(--rice-surface) !important;
+  --toolbar-field-background-color-focus: var(--rice-raised) !important;
+  --toolbar-field-text-color: var(--rice-text) !important;
+  --toolbar-field-text-color-focus: var(--rice-text) !important;
+  --toolbar-field-border-color: transparent !important;
+  --toolbar-field-border-color-focus: var(--rice-edge) !important;
+  --lwt-toolbar-field-highlight: var(--rice-selected) !important;
+  --lwt-toolbar-field-highlight-text: var(--rice-text) !important;
+  --urlbar-box-background-color: var(--rice-overlay) !important;
+  --urlbar-box-background-color-hover: var(--rice-line) !important;
+  --urlbar-box-text-color: var(--rice-soft) !important;
+
+  --urlbarview-background-color-hover: var(--rice-hover) !important;
+  --urlbarview-background-color-selected: var(--rice-selected) !important;
+  --urlbarview-text-color-selected: var(--rice-text) !important;
+  --urlbarview-text-color-secondary: var(--rice-muted) !important;
+  --urlbarview-separator-color: var(--rice-line) !important;
+
+  --focus-outline-color: var(--rice-petal) !important;
+  --color-accent-primary: var(--rice-petal) !important;
+  --color-accent-primary-hover: var(--rice-blush) !important;
+  --color-accent-primary-active: var(--rice-ember) !important;
+  --button-text-color-primary: var(--rice-on-accent) !important;
+  --button-text-color-primary-hover: var(--rice-on-accent) !important;
+  --button-text-color-primary-active: var(--rice-on-accent) !important;
+  --background-color-box: var(--rice-surface) !important;
+
+  --sidebar-background-color: var(--rice-crust) !important;
+  --sidebar-text-color: var(--rice-text) !important;
+  --sidebar-border-color: var(--rice-line) !important;
+  --tabpanel-background-color: var(--rice-base) !important;
+
+  --panel-background-color: var(--rice-raised) !important;
+  --panel-text-color: var(--rice-text) !important;
+  --panel-border-color: var(--rice-edge) !important;
+  --panel-separator-color: var(--rice-line) !important;
+}
+
+:root,
+menupopup,
+panel,
+#urlbar-input,
+.tab-label {
+  font-family: "Rubik", sans-serif !important;
+}
+
+menupopup,
+panel {
+  --panel-background-color: var(--rice-raised) !important;
+  --panel-text-color: var(--rice-text) !important;
+  --panel-border-color: var(--rice-edge) !important;
+  --panel-separator-color: var(--rice-line) !important;
+  --panel-border-radius: 12px !important;
+}
+
+menupopup > :is(menuitem, menu) {
+  border-radius: 7px !important;
+}
+
+menupopup > :is(menuitem, menu)[_moz-menuactive]:not([disabled]) {
+  background-color: var(--rice-selected) !important;
+  color: var(--rice-text) !important;
+}
+
+#navigator-toolbox {
+  border-bottom: none !important;
+}
+
+#nav-bar {
+  background: var(--rice-crust) !important;
+  box-shadow: none !important;
+  border-top: none !important;
+}
+
+#urlbar-background {
+  border: 1px solid transparent !important;
+}
+
+#urlbar[focused] > #urlbar-background,
+#urlbar[open] > #urlbar-background {
+  border-color: var(--rice-edge) !important;
+  outline: none !important;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35) !important;
+}
+
+.tabbrowser-tab:not([selected], :hover) .tab-close-button {
+  visibility: collapse !important;
+}
+
+.tabbrowser-tab:not([selected]) .tab-label {
+  color: var(--rice-muted) !important;
+}
+
+.tabbrowser-tab:hover:not([selected]) .tab-label {
+  color: var(--rice-soft) !important;
+}
+
+#tabbrowser-tabs .tabbrowser-tab[selected] .tab-label {
+  color: var(--rice-text) !important;
+}
+
+.titlebar-buttonbox-container {
+  display: none !important;
+}
+
+#PersonalToolbar #import-button {
+  display: none !important;
+}
+
+#tabbrowser-tabbox,
+#tabbrowser-tabpanels,
+.browserStack {
+  background-color: var(--rice-base) !important;
+}
+
+#ai-window-toggle,
+#smartwindow-group-tabs-button,
+#fxa-toolbar-menu-button {
+  display: none !important;
+}
+
+#context-ask-chat,
+#context-create-aitab,
+#context-openlinksmartwindow,
+#context-visual-search,
+#context-sendlinktodevice,
+#context-sep-sendlinktodevice,
+#context-sendpagetodevice,
+#context-sep-sendpagetodevice,
+#context-sendimage,
+#context-sendvideo,
+#context-sendaudio,
+#context-setDesktopBackground,
+#context-sep-setbackground,
+#context-take-screenshot,
+#context-sep-screenshots,
+#context-print-selection,
+#context-inspect-a11y,
+#context-viewimagedesc {
+  display: none !important;
+}

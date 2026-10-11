@@ -1,0 +1,125 @@
+configuration {
+    modi: "drun,window,filebrowser";
+    show-icons: true;
+    icon-theme: "Papirus-Rice";
+    font: "Rubik 12";
+    drun-display-format: "{name}";
+    hover-select: true;
+    me-select-entry: "";
+    me-accept-entry: "MousePrimary";
+}
+
+@theme "/dev/null"
+@import "~/.local/state/rice/colors.rasi"
+
+* {
+    background-color: transparent;
+    text-color: @text;
+}
+
+window {
+    width: 820px;
+    location: center;
+    anchor: center;
+    background-color: @glass;
+    border: 1px;
+    border-color: @edge;
+    border-radius: 18px;
+    padding: 14px;
+}
+
+mainbox {
+    border: 0;
+    orientation: horizontal;
+    spacing: 14px;
+    children: [imagebox, listbox];
+}
+
+imagebox {
+    width: 280px;
+    border-radius: 12px;
+}
+
+listbox {
+    spacing: 12px;
+    padding: 6px 4px 6px 0;
+    children: [inputbar, listview];
+}
+
+inputbar {
+    background-color: @field;
+    border: 1px;
+    border-color: transparent;
+    border-radius: 12px;
+    padding: 12px 16px;
+    spacing: 12px;
+    children: [entry];
+}
+
+entry {
+    text-color: @text;
+    placeholder: "Search";
+    placeholder-color: @muted;
+    cursor: text;
+    cursor-color: @petal;
+    cursor-width: 2px;
+    vertical-align: 0.5;
+}
+
+listview {
+    border: 0;
+    lines: 8;
+    columns: 1;
+    spacing: 3px;
+    fixed-height: true;
+    scrollbar: false;
+    cycle: true;
+}
+
+element {
+    padding: 8px 12px;
+    border-radius: 10px;
+    spacing: 14px;
+    cursor: pointer;
+}
+
+element normal.normal,
+element alternate.normal {
+    background-color: transparent;
+    text-color: @text;
+}
+
+element selected.normal {
+    background-color: @selected;
+    border: 0 0 0 3px;
+    border-color: @petal;
+    text-color: @text;
+}
+
+element-icon {
+    size: 30px;
+    vertical-align: 0.5;
+    cursor: inherit;
+}
+
+element-text {
+    text-color: inherit;
+    vertical-align: 0.5;
+    cursor: inherit;
+}
+
+message {
+    border: 0;
+    background-color: @field;
+    border-radius: 10px;
+    padding: 10px;
+}
+
+textbox {
+    text-color: @muted;
+}
+
+mode-switcher,
+sidebar {
+    border: 0;
+}

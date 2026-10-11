@@ -1,0 +1,2 @@
+bibata-cursor-theme-bin
+ttf-material-symbols-variable-git

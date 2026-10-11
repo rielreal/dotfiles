@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+hyprctl binds -j | jq -r '
+    .[]
+    | select(.has_description)
+    | . as $bind
+    | [[64, "SUPER"], [4, "CTRL"], [8, "ALT"], [1, "SHIFT"]]
+    | map(select((($bind.modmask / .[0]) | floor) % 2 == 1) | .[1])
+    | . + [$bind.key]
+    | "\(join(" + "))\t\($bind.description)"
+' | column -t -s $'\t' | rofi -dmenu -i -p keybinds > /dev/null || true

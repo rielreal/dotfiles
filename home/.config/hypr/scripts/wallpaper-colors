@@ -1,0 +1,1163 @@
+#!/usr/bin/env python3
+import colorsys
+import configparser
+import json
+import math
+import os
+import re
+import shutil
+import subprocess
+import zipfile
+import sys
+from pathlib import Path
+
+STATE_DIR = Path(os.environ.get("XDG_STATE_HOME", Path.home() / ".local/state")) / "rice"
+DUNST_DROPIN = Path.home() / ".config/dunst/dunstrc.d/50-wallpaper-colors.conf"
+WAYBAR_COLORS = Path.home() / ".config/waybar/colors.css"
+SWAYOSD_COLORS = Path.home() / ".config/swayosd/colors.css"
+TEMPLATES = Path(__file__).resolve().parents[4] / "templates"
+GTK_TEMPLATE = TEMPLATES / "gtk/Rose-Pine"
+GTK_THEME = Path.home() / ".local/share/themes/Rice"
+KVANTUM_TEMPLATE = TEMPLATES / "kvantum/RosePine"
+KVANTUM_THEME = Path.home() / ".config/Kvantum/Rice"
+SPICETIFY_COLORS = Path.home() / ".config/spicetify/Themes/Comfy/color.ini"
+VESKTOP_QUICKCSS = Path.home() / ".config/vesktop/settings/quickCss.css"
+BTOP_THEME = Path.home() / ".config/btop/themes/rice.theme"
+SATTY_DIR = Path.home() / ".config/satty"
+FIREFOX_ROOTS = (Path.home() / ".mozilla/firefox", Path.home() / ".config/mozilla/firefox")
+FIREFOX_THEME = Path.home() / ".config/rice/firefox"
+WALLPAPER_LINK = STATE_DIR.parent / "wallpaper"
+SDDM_STATE = Path("/var/lib/sddm-rice")
+VSCODE_SETTINGS = Path.home() / ".config/Code/User/settings.json"
+INTELLIJ_TEMPLATES = Path.home() / ".config/rice/intellij"
+JETBRAINS_DATA = Path.home() / ".local/share/JetBrains"
+FASTFETCH_TEMPLATE = Path.home() / ".config/fastfetch/config.template.jsonc"
+FASTFETCH_CONFIG = Path.home() / ".config/fastfetch/config.jsonc"
+FASTFETCH_LOGO = STATE_DIR / "fastfetch-logo.png"
+TELEGRAM_PALETTE = Path.home() / ".config/rice/telegram/colors.palette"
+TELEGRAM_THEME = STATE_DIR / "Rice.tdesktop-theme"
+TELEGRAM_KEPT_PREFIXES = ("mediaview", "call", "groupCall", "historyPeer", "shadow", "windowShadow", "imageBg", "slideFade", "layerBg", "photoCrop", "premium", "credits", "statisticsChart", "youtube", "wallet")
+TELEGRAM_COLOR_LINE = re.compile(r"^([A-Za-z0-9_]+):\s*#([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?;", re.M)
+HEX_COLOR = re.compile(r"^#?([0-9A-Fa-f]{6})([0-9A-Fa-f]{2})?$")
+INTELLIJ_PLUGIN_XML = """<idea-plugin>
+  <id>rice.theme</id>
+  <name>Rice Theme</name>
+  <version>1.0</version>
+  <vendor>rice</vendor>
+  <description>Islands Dark recoloured from the current wallpaper by wallpaper-colors.</description>
+  <idea-version since-build="253"/>
+  <depends>com.intellij.modules.platform</depends>
+  <extensions defaultExtensionNs="com.intellij">
+    <themeProvider id="rice-theme" path="/rice.theme.json"/>
+  </extensions>
+</idea-plugin>
+"""
+PAPIRUS = Path("/usr/share/icons/Papirus")
+FOLDER_THEME = Path.home() / ".local/share/icons/Papirus-Rice"
+PAPIRUS_FOLDER_HUES = {
+    "red": 0, "deeporange": 15, "orange": 30, "paleorange": 35, "yellow": 52, "green": 120, "teal": 168,
+    "cyan": 188, "blue": 210, "indigo": 235, "violet": 268, "magenta": 300, "pink": 330, "carmine": 348,
+}
+MIN_HUE_DISTANCE = 0.06
+GRAYSCALE_SATURATION = 0.12
+
+
+class Color:
+    def __init__(self, hue, lightness, saturation):
+        self.hue = hue % 1.0
+        self.lightness = min(max(lightness, 0.0), 1.0)
+        self.saturation = min(max(saturation, 0.0), 1.0)
+
+    @classmethod
+    def from_rgb(cls, red, green, blue):
+        hue, lightness, saturation = colorsys.rgb_to_hls(red / 255, green / 255, blue / 255)
+        return cls(hue, lightness, saturation)
+
+    def tone(self, lightness, saturation):
+        return Color(self.hue, lightness, saturation)
+
+    def rgb(self):
+        red, green, blue = colorsys.hls_to_rgb(self.hue, self.lightness, self.saturation)
+        return round(red * 255), round(green * 255), round(blue * 255)
+
+    def hex(self, alpha=None):
+        value = "#{:02x}{:02x}{:02x}".format(*self.rgb())
+        return value if alpha is None else value + "{:02x}".format(round(alpha * 255))
+
+    def bare(self, alpha=1.0):
+        return "{:02x}{:02x}{:02x}{:02x}".format(*self.rgb(), round(alpha * 255))
+
+    def rgba(self, alpha):
+        return "rgba({}, {}, {}, {})".format(*self.rgb(), alpha)
+
+
+def sample_colors(image):
+    histogram = subprocess.run(
+        ["magick", f"{image}[0]", "-resize", "160x160", "-colors", "16", "-format", "%c", "histogram:info:-"],
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    samples = []
+    for line in histogram.splitlines():
+        match = re.search(r"^\s*(\d+):.*#([0-9A-Fa-f]{6})", line)
+        if match:
+            count = int(match.group(1))
+            red, green, blue = (int(match.group(2)[i:i + 2], 16) for i in (0, 2, 4))
+            samples.append((count, Color.from_rgb(red, green, blue)))
+    if not samples:
+        sys.exit(f"wallpaper-colors: no colors sampled from {image}")
+    return samples
+
+
+def hue_distance(first, second):
+    distance = abs(first.hue - second.hue)
+    return min(distance, 1.0 - distance)
+
+
+def dominant_hue(samples):
+    x = sum(count * color.saturation * math.cos(2 * math.pi * color.hue) for count, color in samples)
+    y = sum(count * color.saturation * math.sin(2 * math.pi * color.hue) for count, color in samples)
+    return math.atan2(y, x) / (2 * math.pi)
+
+
+def pick_accents(samples):
+    vivid = [(count, color) for count, color in samples if 0.2 < color.lightness < 0.85]
+    ranked = sorted(vivid or samples, key=lambda item: item[1].saturation * item[0] ** 0.35, reverse=True)
+    accents = []
+    for _, color in ranked:
+        if all(hue_distance(color, chosen) > MIN_HUE_DISTANCE for chosen in accents):
+            accents.append(color)
+        if len(accents) == 3:
+            break
+    primary = accents[0]
+    while len(accents) < 3:
+        accents.append(Color(primary.hue + 0.07 * len(accents), primary.lightness, primary.saturation))
+    return accents
+
+
+def build_palette(samples):
+    accents = pick_accents(samples)
+    primary = accents[0]
+    grayscale = primary.saturation < GRAYSCALE_SATURATION
+    accent_saturation = 0.12 if grayscale else None
+    base_hue = primary.hue if grayscale else dominant_hue(samples)
+
+    def accent(color, lightness):
+        saturation = accent_saturation if grayscale else min(max(color.saturation, 0.68), 0.9)
+        return color.tone(lightness, saturation)
+
+    tint = 0.04 if grayscale else 0.3
+    base = Color(base_hue, 0.06, tint)
+    return {
+        "base": base,
+        "critical": Color(primary.hue, 0.11, tint + 0.2),
+        "petal": accent(accents[0], 0.68),
+        "ember": accent(accents[1], 0.70),
+        "gold": accent(accents[2], 0.76),
+        "wine": accent(accents[0], 0.38),
+        "blush": primary.tone(0.82, 0.12 if grayscale else 0.45),
+        "text": primary.tone(0.93, 0.08 if grayscale else 0.3),
+        "soft": primary.tone(0.78, 0.06 if grayscale else 0.18),
+        "muted": primary.tone(0.58, 0.05 if grayscale else 0.12),
+    }
+
+
+def write(path, content):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(content)
+    temporary.replace(path)
+
+
+def waybar_css(p):
+    return "".join([
+        f"@define-color glass {p['base'].rgba(0.38)};\n",
+        f"@define-color pill {p['text'].rgba(0.07)};\n",
+        f"@define-color pillHover {p['text'].rgba(0.14)};\n",
+        f"@define-color edge {p['petal'].rgba(0.28)};\n",
+        *(f"@define-color {name} {p[name].hex()};\n" for name in ("text", "muted", "blush", "petal", "ember", "gold", "wine")),
+    ])
+
+
+def rofi_rasi(p):
+    return "\n".join([
+        "* {",
+        f"    glass: {p['base'].hex(0.72)};",
+        f"    field: {p['text'].hex(0.07)};",
+        f"    selected: {p['petal'].hex(0.22)};",
+        f"    edge: {p['petal'].hex(0.33)};",
+        f"    text: {p['text'].hex()};",
+        f"    muted: {p['muted'].hex()};",
+        f"    petal: {p['petal'].hex()};",
+        "}",
+        "",
+        "imagebox {",
+        f'    background-image: url("{STATE_DIR.parent / "wallpaper"}", height);',
+        "}",
+        "",
+    ])
+
+
+def dunst_conf(p):
+    return "\n".join([
+        "[global]",
+        f"frame_color = \"{p['petal'].hex(0.33)}\"",
+        f"highlight = \"{p['petal'].hex()}\"",
+        f"format = \"<span size='small' foreground='{p['muted'].hex()}'>%a</span>\\n<b>%s</b>\\n%b\"",
+        "",
+        "[urgency_low]",
+        f"background = \"{p['base'].hex(0.66)}\"",
+        f"foreground = \"{p['soft'].hex()}\"",
+        f"frame_color = \"{p['muted'].hex(0.25)}\"",
+        "",
+        "[urgency_normal]",
+        f"background = \"{p['base'].hex(0.71)}\"",
+        f"foreground = \"{p['text'].hex()}\"",
+        "",
+        "[urgency_critical]",
+        f"background = \"{p['critical'].hex(0.8)}\"",
+        f"foreground = \"{p['text'].hex()}\"",
+        f"frame_color = \"{p['petal'].hex()}\"",
+        f"highlight = \"{p['ember'].hex()}\"",
+        "",
+    ])
+
+
+def kitty_conf(p):
+    background = p["base"].tone(0.1, min(p["base"].saturation, 0.25))
+    foreground = p["text"].tone(0.84, min(p["text"].saturation, 0.12))
+    surface = background.tone(0.18, background.saturation)
+    selection = p["petal"].tone(0.3, 0.35)
+    return "".join(f"{key} {value}\n" for key, value in [
+        ("background", background.hex()),
+        ("foreground", foreground.hex()),
+        ("cursor", p["petal"].hex()),
+        ("cursor_text_color", background.hex()),
+        ("selection_background", selection.hex()),
+        ("selection_foreground", foreground.hex()),
+        ("url_color", p["petal"].hex()),
+        ("active_border_color", p["petal"].hex()),
+        ("inactive_border_color", p["wine"].hex()),
+        ("tab_bar_background", background.hex()),
+        ("active_tab_background", background.hex()),
+        ("active_tab_foreground", p["petal"].hex()),
+        ("inactive_tab_background", background.hex()),
+        ("inactive_tab_foreground", p["muted"].hex()),
+        ("color0", surface.hex()),
+        ("color8", p["muted"].hex()),
+        ("color3", p["gold"].hex()),
+        ("color11", p["gold"].hex()),
+        ("color5", p["petal"].hex()),
+        ("color13", p["petal"].hex()),
+        ("color7", p["soft"].hex()),
+        ("color15", foreground.hex()),
+    ])
+
+
+def rose_pine_replacements(p):
+    app = p["base"].tone(0.1, min(p["base"].saturation, 0.25))
+    def surface(lightness):
+        return app.tone(lightness, app.saturation * 0.8)
+    return {
+        "#191724": app.hex(),
+        "#21202e": surface(0.12).hex(),
+        "#1f1d2e": surface(0.13).hex(),
+        "#26233a": surface(0.17).hex(),
+        "#403d52": surface(0.27).hex(),
+        "#524f67": surface(0.35).hex(),
+        "#6e6a86": p["muted"].hex(),
+        "#908caa": p["soft"].hex(),
+        "#575279": p["muted"].hex(),
+        "#e0def4": p["text"].hex(),
+        "#cdd6f4": p["text"].hex(),
+        "#faf4ed": p["text"].tone(0.96, 0.2).hex(),
+        "#eb6f92": p["petal"].hex(),
+        "#c4a7e7": p["petal"].hex(),
+        "#cba6f7": p["petal"].hex(),
+        "#ebbcba": p["blush"].hex(),
+        "#f6c177": p["gold"].hex(),
+        "#31748f": p["wine"].hex(),
+        "#9ccfd8": p["ember"].hex(),
+    }
+
+
+def recolor(text, replacements):
+    pattern = re.compile("|".join(re.escape(key) for key in replacements), re.IGNORECASE)
+    return pattern.sub(lambda match: replacements[match.group(0).lower()], text)
+
+
+def render_gtk_theme(replacements):
+    for version in ("gtk-3.0", "gtk-4.0"):
+        source = GTK_TEMPLATE / version
+        target = GTK_THEME / version
+        target.mkdir(parents=True, exist_ok=True)
+        assets = target / "assets"
+        if not (assets.is_symlink() and assets.resolve() == (source / "assets").resolve()):
+            assets.unlink(missing_ok=True)
+            assets.symlink_to(source / "assets")
+        for stylesheet in ("gtk.css", "gtk-dark.css"):
+            write(target / stylesheet, recolor((source / stylesheet).read_text(), replacements))
+    write(GTK_THEME / "index.theme", "[Desktop Entry]\nType=X-GNOME-Metatheme\nName=Rice\n\n[X-GNOME-Metatheme]\nGtkTheme=Rice\n")
+
+
+def render_kvantum_theme(replacements):
+    write(KVANTUM_THEME / "Rice.svg", recolor((KVANTUM_TEMPLATE / "RosePine.svg").read_text(), replacements))
+    write(KVANTUM_THEME / "Rice.kvconfig", recolor((KVANTUM_TEMPLATE / "RosePine.kvconfig").read_text(), replacements))
+
+
+def hyprland_borders(p):
+    return {
+        "borderActive": f"rgba({p['petal'].bare()}) rgba({p['ember'].bare()}) 45deg",
+        "borderInactive": f"rgba({p['wine'].bare(0.8)}) rgba({p['muted'].bare(0.8)}) 45deg",
+        "groupActive": f"rgba({p['wine'].bare(0.93)})",
+        "groupInactive": f"rgba({p['base'].bare(0.93)})",
+        "groupText": f"rgba({p['text'].bare(0.93)})",
+    }
+
+
+def app_surfaces(p):
+    app = p["base"].tone(0.1, min(p["base"].saturation, 0.25))
+    return {lightness: app.tone(lightness, app.saturation * 0.8) for lightness in (0.07, 0.08, 0.1, 0.12, 0.14, 0.17, 0.2, 0.27)}
+
+
+def spicetify_ini(p):
+    s = app_surfaces(p)
+    entries = [
+        ("text", p["text"]), ("subtext", p["soft"]), ("main", s[0.12]), ("main-elevated", s[0.17]),
+        ("main-transition", s[0.1]), ("highlight", s[0.2]), ("highlight-elevated", s[0.17]),
+        ("sidebar", s[0.1]), ("player", s[0.08]), ("card", s[0.08]), ("shadow", s[0.07]),
+        ("selected-row", p["text"]), ("button", p["petal"]), ("button-active", p["ember"]),
+        ("button-disabled", s[0.27]), ("tab-active", s[0.17]), ("notification", p["wine"]),
+        ("notification-error", p["petal"]), ("misc", s[0.07]), ("play-button", p["petal"]),
+        ("play-button-active", p["ember"]), ("progress-fg", p["petal"]), ("progress-bg", s[0.27]),
+        ("heart", p["petal"]), ("pagelink-active", p["ember"]), ("radio-btn-active", p["petal"]),
+    ]
+    return "[Rice]\n" + "".join(f"{key:<19}= {color.hex()[1:]}\n" for key, color in entries)
+
+
+VESKTOP_DECLUTTER = """
+[class*="numberBadge"], [class*="textBadge"] {
+    color: var(--text-0) !important;
+}
+
+[class*="newBadge"], [class*="unreadBar"], [class*="unreadMentionsBar"], [class*="newMessagesBar"] {
+    background: color-mix(in srgb, var(--accent-2) 18%, transparent) !important;
+    color: var(--accent-1) !important;
+    border-radius: 6px !important;
+    font-weight: 600 !important;
+    letter-spacing: 0.02em;
+}
+
+
+[class*="notice__"] {
+    background: color-mix(in srgb, var(--accent-2) 16%, var(--bg-4)) !important;
+    color: var(--text-1) !important;
+    border-radius: 10px !important;
+    height: 34px !important;
+    line-height: 34px !important;
+    margin: 3px var(--gap) !important;
+    box-sizing: border-box !important;
+    font-weight: 500 !important;
+}
+
+[class*="notice__"][class*="colorDanger"], [class*="notice__"][class*="colorError"] {
+    background: color-mix(in srgb, var(--red-3) 22%, var(--bg-4)) !important;
+}
+
+[class*="notice__"] button {
+    background: transparent !important;
+    border: 1px solid var(--accent-2) !important;
+    color: var(--accent-1) !important;
+    border-radius: 6px !important;
+}
+
+[class*="notice__"] [class*="closeButton"] {
+    color: var(--text-3) !important;
+}
+
+[class*="mentioned_"] {
+    background: color-mix(in srgb, var(--accent-2) 6%, transparent) !important;
+    border-radius: 0 !important;
+    margin: 0 !important;
+    box-shadow: none !important;
+}
+
+[class*="mentioned_"]:hover {
+    background: color-mix(in srgb, var(--accent-2) 9%, transparent) !important;
+}
+
+[class*="mentioned_"]::before {
+    display: none !important;
+}
+
+[data-list-item-id="guildsnav___home"] [class*="childWrapper"] {
+    background: var(--bg-2) !important;
+    color: var(--accent-1) !important;
+}
+
+[data-list-item-id="guildsnav___home"]:hover [class*="childWrapper"] {
+    background: var(--bg-1) !important;
+}
+
+[class*="divider"][class*="isUnread"] {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+[class*="channelTextArea"] [class*="container"]:has(> [aria-label="Send a gift"]),
+[class*="channelTextArea"] [aria-label="Send a gift"],
+[class*="channelTextArea"] [aria-label*="sticker" i],
+[class*="channelTextArea"] .app-launcher-entrypoint,
+[class*="listItem"]:has([data-list-item-id="guildsnav___app-download-button"]),
+[class*="listItem"]:has([data-list-item-id="guildsnav___guild-discover-button"]),
+li:has(a[href="/store"]),
+li:has(a[href="/shop"]),
+li:has(a[href="/quest-home"]),
+[class*="channel"]:has(> [class*="interactive"] a[href="/store"]),
+[class*="channel"]:has(> [class*="interactive"] a[href="/shop"]),
+[class*="channel"]:has(> [class*="interactive"] a[href="/quest-home"]) {
+    display: none !important;
+}
+"""
+
+MIDNIGHT_STATIC_COLORS = """
+    --mention: linear-gradient(to right, color-mix(in hsl, var(--accent-2), transparent 90%) 40%, transparent);
+    --mention-hover: linear-gradient(to right, color-mix(in hsl, var(--accent-2), transparent 95%) 40%, transparent);
+    --reply: linear-gradient(to right, color-mix(in hsl, var(--text-3), transparent 90%) 40%, transparent);
+    --reply-hover: linear-gradient(to right, color-mix(in hsl, var(--text-3), transparent 95%) 40%, transparent);
+    --online: var(--green-2);
+    --dnd: var(--red-2);
+    --idle: var(--yellow-2);
+    --streaming: var(--purple-2);
+    --offline: var(--text-4);
+    --border-light: var(--hover);
+    --border: var(--active);
+    --border-hover: var(--active);
+    --button-border: hsl(220, 0%, 100%, 0.1);
+"""
+
+MIDNIGHT_OPTIONS = """
+body {
+    --font: 'Rubik';
+    --code-font: 'CaskaydiaCove Nerd Font Mono';
+    font-weight: 400;
+    --gap: 12px;
+    --divider-thickness: 1px;
+    --border-thickness: 1px;
+    --animations: on;
+    --list-item-transition: 0.2s ease;
+    --dms-icon-svg-transition: 0.4s ease;
+    --border-hover-transition: 0.2s ease;
+    --top-bar-height: var(--gap);
+    --top-bar-button-position: titlebar;
+    --top-bar-title-position: off;
+    --subtle-top-bar-title: off;
+    --custom-window-controls: off;
+    --window-control-size: 14px;
+    --custom-dms-icon: off;
+    --dms-icon-svg-url: url('https://refact0r.github.io/midnight-discord/assets/Font_Awesome_5_solid_moon.svg');
+    --dms-icon-svg-size: 90%;
+    --dms-icon-color-before: var(--icon-subtle);
+    --dms-icon-color-after: var(--white);
+    --custom-dms-background: off;
+    --dms-background-image-url: url('');
+    --dms-background-image-size: cover;
+    --dms-background-color: linear-gradient(70deg, var(--blue-2), var(--purple-2), var(--red-2));
+    --background-image: off;
+    --background-image-url: url('');
+    --transparency-tweaks: off;
+    --remove-bg-layer: off;
+    --panel-blur: off;
+    --blur-amount: 12px;
+    --bg-floating: var(--bg-3);
+    --custom-chatbar: off;
+    --chatbar-height: 52px;
+    --small-user-panel: on;
+}
+"""
+
+
+def brand_ramp(accent):
+    shades = {100: 0.9, 130: 0.88, 160: 0.86, 200: 0.84, 230: 0.82, 260: 0.8, 300: 0.78, 330: 0.76, 345: 0.75, 360: 0.74, 400: 0.72, 430: 0.7,
+              460: 0.68, 500: 0.66, 530: 0.62, 560: 0.58, 600: 0.54, 630: 0.5, 660: 0.46, 700: 0.42, 730: 0.38, 760: 0.34, 800: 0.3, 830: 0.26, 860: 0.22, 900: 0.18}
+    return {f"--brand-{shade}": accent.tone(lightness, accent.saturation).hex() for shade, lightness in shades.items()}
+
+
+def semantic_ramps():
+    hues = {"red": (25, 0.13), "green": (160, 0.075), "yellow": (80, 0.1), "blue": (230, 0.08), "purple": (320, 0.09)}
+    lightness = (78, 73, 68, 63, 58)
+    return {f"--{name}-{index}": f"oklch({level}% {chroma} {hue})" for name, (hue, chroma) in hues.items() for index, level in enumerate(lightness, start=1)}
+
+
+def vesktop_css(p):
+    s = app_surfaces(p)
+    petal = p["petal"]
+    accents = {f"--accent-{index}": petal.tone(lightness, petal.saturation).hex() for index, lightness in enumerate((0.78, 0.7, 0.64, 0.58, 0.52), start=1)}
+    colors = {
+        "--colors": "on",
+        "--text-0": s[0.08].hex(),
+        "--text-1": p["text"].hex(),
+        "--text-2": p["soft"].hex(),
+        "--text-3": p["soft"].tone(0.66, p["soft"].saturation).hex(),
+        "--text-4": p["muted"].hex(),
+        "--text-5": p["muted"].tone(0.4, p["muted"].saturation).hex(),
+        "--bg-1": s[0.2].hex(),
+        "--bg-2": s[0.17].hex(),
+        "--bg-3": s[0.08].hex(),
+        "--bg-4": s[0.12].hex(),
+        "--bg-floating": s[0.14].hex(),
+        "--hover": p["text"].rgba(0.06),
+        "--active": petal.rgba(0.14),
+        "--active-2": petal.rgba(0.22),
+        "--message-hover": "rgba(0, 0, 0, 0.12)",
+        **accents,
+        "--accent-new": accents["--accent-2"],
+        **semantic_ramps(),
+        **brand_ramp(petal),
+        "--text-brand": accents["--accent-1"],
+        "--brand-experiment": accents["--accent-2"],
+    }
+    color_block = ":root {\n" + MIDNIGHT_STATIC_COLORS + "".join(f"    {name}: {value};\n" for name, value in colors.items()) + "}\n"
+    return "@import url('https://refact0r.github.io/midnight-discord/build/midnight.css');\n" + MIDNIGHT_OPTIONS + color_block + VESKTOP_DECLUTTER
+
+
+def btop_theme(p):
+    s = app_surfaces(p)
+    border = p["muted"].tone(0.4, min(p["muted"].saturation * 1.6, 0.3))
+    selected = p["petal"].tone(0.28, 0.4)
+    entries = {
+        "main_bg": "", "main_fg": p["text"].hex(), "title": p["text"].hex(), "hi_fg": p["petal"].hex(),
+        "selected_bg": selected.hex(), "selected_fg": p["text"].hex(), "inactive_fg": p["muted"].hex(),
+        "graph_text": p["soft"].hex(), "meter_bg": s[0.2].hex(), "proc_misc": p["blush"].hex(),
+        "cpu_box": border.hex(), "mem_box": border.hex(), "net_box": border.hex(), "proc_box": border.hex(),
+        "div_line": border.hex(),
+        "temp_start": p["blush"].hex(), "temp_mid": p["gold"].hex(), "temp_end": p["petal"].hex(),
+        "cpu_start": p["blush"].hex(), "cpu_mid": p["ember"].hex(), "cpu_end": p["petal"].hex(),
+        "free_start": p["soft"].hex(), "free_mid": p["blush"].hex(), "free_end": p["text"].hex(),
+        "cached_start": p["gold"].hex(), "cached_mid": p["gold"].hex(), "cached_end": p["blush"].hex(),
+        "available_start": p["soft"].hex(), "available_mid": p["blush"].hex(), "available_end": p["text"].hex(),
+        "used_start": p["blush"].hex(), "used_mid": p["ember"].hex(), "used_end": p["petal"].hex(),
+        "download_start": p["blush"].hex(), "download_mid": p["ember"].hex(), "download_end": p["petal"].hex(),
+        "upload_start": p["blush"].hex(), "upload_mid": p["gold"].hex(), "upload_end": p["gold"].hex(),
+        "process_start": p["blush"].hex(), "process_mid": p["ember"].hex(), "process_end": p["petal"].hex(),
+    }
+    return "".join(f'theme[{key}]="{value}"\n' for key, value in entries.items())
+
+
+def closest_folder_color(accent):
+    degrees = accent.hue * 360
+    def distance(name):
+        gap = abs(PAPIRUS_FOLDER_HUES[name] - degrees)
+        return min(gap, 360 - gap)
+    return min(PAPIRUS_FOLDER_HUES, key=distance)
+
+
+def render_folder_theme(accent):
+    color = closest_folder_color(accent)
+    marker = FOLDER_THEME / ".folder-color"
+    if marker.exists() and marker.read_text() == color:
+        return
+    directories = []
+    for places in sorted(PAPIRUS.glob("*/places")):
+        target_dir = FOLDER_THEME / places.parent.name / "places"
+        target_dir.mkdir(parents=True, exist_ok=True)
+        for old_link in target_dir.iterdir():
+            old_link.unlink()
+        for entry in places.iterdir():
+            if not entry.is_symlink():
+                continue
+            default_target = os.readlink(entry)
+            for _ in range(3):
+                if "-blue" in default_target or not (places / default_target).is_symlink():
+                    break
+                default_target = os.readlink(places / default_target)
+            if "-blue" not in default_target:
+                continue
+            colored = places / default_target.replace("-blue", f"-{color}", 1)
+            if colored.exists():
+                (target_dir / entry.name).symlink_to(colored)
+        directories.append(places.parent.name)
+    def section(directory):
+        size, _, scale = directory.partition("@")
+        pixels = size.split("x")[0] if "x" in size else "16"
+        scale_line = f"Scale={scale.rstrip('x')}\n" if scale else ""
+        kind = "Scalable" if directory == "symbolic" else "Fixed"
+        return f"\n[{directory}/places]\nContext=Places\nSize={pixels}\n{scale_line}Type={kind}\n"
+    sections = "".join(section(directory) for directory in directories)
+    write(FOLDER_THEME / "index.theme",
+          "[Icon Theme]\nName=Papirus-Rice\nComment=Papirus-Dark with wallpaper-coloured folders\nInherits=Papirus-Dark,Papirus,hicolor\n"
+          f"Directories={','.join(f'{size}/places' for size in directories)}\n{sections}")
+    marker.write_text(color)
+    subprocess.run(["gtk-update-icon-cache", "-f", "-q", str(FOLDER_THEME)], check=False, capture_output=True)
+
+
+def slurp_args(p):
+    return " ".join([
+        f"-b {p['base'].bare(0.35)}",
+        f"-c {p['petal'].bare(1.0)}",
+        f"-s {p['petal'].bare(0.12)}",
+        f"-B {p['petal'].bare(0.18)}",
+        "-w 2",
+    ]) + "\n"
+
+
+def satty_config(p):
+    palette = ", ".join(f'"{p[name].hex()}"' for name in ("petal", "ember", "gold", "blush", "text", "wine"))
+    return "\n".join([
+        "[general]",
+        "early-exit = true",
+        "corner-roundness = 12",
+        'initial-tool = "arrow"',
+        'copy-command = "wl-copy"',
+        "annotation-size-factor = 1.5",
+        "save-after-copy = true",
+        'primary-highlighter = "block"',
+        "disable-notifications = true",
+        "no-window-decoration = true",
+        'actions-on-enter = ["save-to-clipboard"]',
+        'actions-on-escape = ["exit"]',
+        "",
+        "[font]",
+        'family = "IBM Plex Sans"',
+        "",
+        "[color-palette]",
+        f"palette = [{palette}]",
+        "",
+    ])
+
+
+def satty_css(p):
+    s = app_surfaces(p)
+    return f"""window, .background {{
+    background: {s[0.07].hex()};
+}}
+
+.toolbar {{
+    background: {s[0.12].rgba(0.92)};
+    border: 1px solid {p['petal'].rgba(0.25)};
+    border-radius: 14px;
+    margin: 10px;
+    padding: 4px;
+    box-shadow: none;
+}}
+
+.toolbar button, .toolbar togglebutton {{
+    background: transparent;
+    color: {p['text'].hex()};
+    border-radius: 8px;
+    border: none;
+    box-shadow: none;
+    min-height: 30px;
+    min-width: 30px;
+}}
+
+.toolbar button:hover, .toolbar togglebutton:hover {{
+    background: {p['text'].rgba(0.08)};
+}}
+
+.toolbar button:checked, .toolbar togglebutton:checked {{
+    background: {p['petal'].rgba(0.22)};
+    color: {p['petal'].hex()};
+}}
+
+.toolbar label, .toolbar entry, .toolbar spinbutton {{
+    color: {p['text'].hex()};
+    font-family: "Rubik";
+}}
+"""
+
+
+def hyprlock_colors(p):
+    entries = {
+        "lockHours": p["petal"].bare(0.93),
+        "lockMinutes": p["ember"].bare(0.93),
+        "lockText": p["text"].bare(0.93),
+        "lockMuted": p["soft"].bare(0.9),
+        "lockFieldOuter": p["petal"].bare(0.55),
+        "lockFieldInner": p["base"].bare(0.7),
+        "lockCheck": p["gold"].bare(0.93),
+        "lockFail": p["petal"].bare(1.0),
+    }
+    return "".join(f"${name} = rgba({value})\n" for name, value in entries.items())
+
+
+def firefox_colors(p):
+    s = app_surfaces(p)
+    entries = {
+        "crust": s[0.08].hex(),
+        "base": s[0.1].hex(),
+        "raised": s[0.12].hex(),
+        "surface": s[0.14].hex(),
+        "overlay": s[0.17].hex(),
+        "line": s[0.27].hex(),
+        "on-accent": s[0.08].hex(),
+        **{name: p[name].hex() for name in ("text", "soft", "muted", "petal", "ember", "gold", "blush", "wine")},
+        "hover": p["text"].rgba(0.07),
+        "selected": p["petal"].rgba(0.22),
+        "edge": p["petal"].rgba(0.33),
+        "scrollbar": p["petal"].rgba(0.45),
+    }
+    return ":root {\n" + "".join(f"  --rice-{name}: {value};\n" for name, value in entries.items()) + "}\n"
+
+
+def firefox_profiles():
+    profiles = set()
+    for root in FIREFOX_ROOTS:
+        installs = configparser.ConfigParser()
+        installs.read(root / "installs.ini")
+        for section in installs.sections():
+            profile = root / installs[section].get("Default", "")
+            if profile != root and profile.is_dir():
+                profiles.add(profile)
+    return sorted(profiles)
+
+
+def link_profile_file(link, source):
+    if link.is_symlink() and link.resolve() == source.resolve():
+        return
+    if link.exists() and not link.is_symlink():
+        print(f"wallpaper-colors: leaving existing {link} alone", file=sys.stderr)
+        return
+    link.unlink(missing_ok=True)
+    link.symlink_to(source)
+
+
+def copy_into_sandbox(target, source):
+    temporary = target.with_name(target.name + ".tmp")
+    shutil.copyfile(source, temporary)
+    temporary.replace(target)
+
+
+def render_firefox(p):
+    colors = firefox_colors(p)
+    for profile in firefox_profiles():
+        chrome = profile / "chrome"
+        write(chrome / "rice-colors.css", colors)
+        for name in ("userChrome.css", "userContent.css"):
+            copy_into_sandbox(chrome / name, FIREFOX_THEME / name)
+        copy_into_sandbox(chrome / "wallpaper", WALLPAPER_LINK)
+        link_profile_file(profile / "user.js", FIREFOX_THEME / "user.js")
+
+
+def sddm_conf(p, background):
+    s = app_surfaces(p)
+    entries = {
+        "Background": background,
+        "BackgroundS": background,
+        "DimBackgroundImage": "0.15",
+        "ScreenWidth": "2560",
+        "ScreenHeight": "1440",
+        "FullBlur": "false",
+        "PartialBlur": "true",
+        "BlurRadius": "48",
+        "HaveFormBackground": "true",
+        "FormPosition": "left",
+        "MainColor": p["text"].hex(),
+        "AccentColor": p["petal"].hex(),
+        "BackgroundColor": s[0.08].hex(),
+        "OverrideLoginButtonTextColor": s[0.08].hex(),
+        "InterfaceShadowSize": "4",
+        "InterfaceShadowOpacity": "0.4",
+        "RoundCorners": "14",
+        "Font": "Rubik",
+        "HourFormat": "HH:mm",
+        "DateFormat": "dddd d. MMMM",
+        "HeaderText": "",
+    }
+    return "[General]\n" + "".join(f'{key}="{value}"\n' for key, value in entries.items())
+
+
+def render_sddm(p):
+    wallpaper = WALLPAPER_LINK.resolve()
+    background = SDDM_STATE / ("background" + wallpaper.suffix.lower())
+    for stale in SDDM_STATE.glob("background.*"):
+        if stale != background:
+            stale.unlink()
+    copy_into_sandbox(background, wallpaper)
+    write(SDDM_STATE / "theme.conf.user", sddm_conf(p, str(background)))
+
+
+def vscode_colors(p):
+    s = app_surfaces(p)
+    chrome, editor, raised, overlay, line = s[0.08].hex(), s[0.1].hex(), s[0.12].hex(), s[0.17].hex(), s[0.27].hex()
+    petal, text, soft, muted = p["petal"], p["text"].hex(), p["soft"].hex(), p["muted"].hex()
+    return {
+        "foreground": text,
+        "focusBorder": petal.hex(0.55),
+        "selection.background": petal.hex(0.35),
+        "widget.border": line,
+        "textLink.foreground": petal.hex(),
+        "textLink.activeForeground": p["blush"].hex(),
+        "titleBar.activeBackground": chrome,
+        "titleBar.inactiveBackground": chrome,
+        "titleBar.activeForeground": soft,
+        "titleBar.border": raised,
+        "activityBar.background": chrome,
+        "activityBar.foreground": text,
+        "activityBar.inactiveForeground": muted,
+        "activityBar.activeBorder": petal.hex(),
+        "activityBar.border": raised,
+        "activityBarBadge.background": petal.hex(),
+        "activityBarBadge.foreground": chrome,
+        "badge.background": petal.hex(),
+        "badge.foreground": chrome,
+        "sideBar.background": chrome,
+        "sideBar.foreground": soft,
+        "sideBar.border": raised,
+        "sideBarTitle.foreground": text,
+        "sideBarSectionHeader.background": chrome,
+        "sideBarSectionHeader.border": raised,
+        "list.activeSelectionBackground": petal.hex(0.22),
+        "list.activeSelectionForeground": text,
+        "list.inactiveSelectionBackground": petal.hex(0.12),
+        "list.hoverBackground": p["text"].hex(0.06),
+        "list.focusOutline": petal.hex(0.45),
+        "list.highlightForeground": petal.hex(),
+        "editor.background": editor,
+        "editor.foreground": text,
+        "editor.lineHighlightBackground": p["text"].hex(0.04),
+        "editor.lineHighlightBorder": "#00000000",
+        "editor.selectionBackground": petal.hex(0.3),
+        "editor.inactiveSelectionBackground": petal.hex(0.15),
+        "editor.wordHighlightBackground": p["gold"].hex(0.14),
+        "editor.findMatchBackground": p["gold"].hex(0.35),
+        "editor.findMatchHighlightBackground": p["gold"].hex(0.18),
+        "editorCursor.foreground": petal.hex(),
+        "editorLineNumber.foreground": p["muted"].tone(0.4, p["muted"].saturation).hex(),
+        "editorLineNumber.activeForeground": soft,
+        "editorIndentGuide.background1": raised,
+        "editorIndentGuide.activeBackground1": line,
+        "editorWhitespace.foreground": overlay,
+        "editorGutter.background": editor,
+        "editorGroup.border": raised,
+        "editorGroupHeader.tabsBackground": chrome,
+        "editorGroupHeader.tabsBorder": raised,
+        "editorWidget.background": raised,
+        "editorWidget.border": line,
+        "editorSuggestWidget.background": raised,
+        "editorSuggestWidget.selectedBackground": petal.hex(0.22),
+        "editorHoverWidget.background": raised,
+        "minimap.background": editor,
+        "tab.activeBackground": editor,
+        "tab.activeForeground": text,
+        "tab.inactiveBackground": chrome,
+        "tab.inactiveForeground": muted,
+        "tab.border": chrome,
+        "tab.activeBorderTop": petal.hex(),
+        "tab.hoverBackground": raised,
+        "statusBar.background": chrome,
+        "statusBar.foreground": soft,
+        "statusBar.border": raised,
+        "statusBar.noFolderBackground": chrome,
+        "statusBar.debuggingBackground": p["wine"].hex(),
+        "statusBarItem.remoteBackground": petal.hex(),
+        "statusBarItem.remoteForeground": chrome,
+        "panel.background": chrome,
+        "panel.border": raised,
+        "panelTitle.activeBorder": petal.hex(),
+        "panelTitle.activeForeground": text,
+        "panelTitle.inactiveForeground": muted,
+        "terminal.background": chrome,
+        "terminal.foreground": text,
+        "terminalCursor.foreground": petal.hex(),
+        "input.background": raised,
+        "input.border": line,
+        "input.placeholderForeground": muted,
+        "dropdown.background": raised,
+        "dropdown.border": line,
+        "button.background": petal.hex(),
+        "button.foreground": chrome,
+        "button.hoverBackground": p["blush"].hex(),
+        "button.secondaryBackground": overlay,
+        "button.secondaryForeground": text,
+        "checkbox.background": raised,
+        "progressBar.background": petal.hex(),
+        "scrollbarSlider.background": petal.hex(0.18),
+        "scrollbarSlider.hoverBackground": petal.hex(0.3),
+        "scrollbarSlider.activeBackground": petal.hex(0.45),
+        "menu.background": raised,
+        "menu.foreground": text,
+        "menu.selectionBackground": petal.hex(0.22),
+        "menu.border": line,
+        "quickInput.background": raised,
+        "quickInputList.focusBackground": petal.hex(0.22),
+        "notifications.background": raised,
+        "notifications.border": line,
+        "peekView.border": petal.hex(0.5),
+        "peekViewEditor.background": s[0.07].hex(),
+        "peekViewResult.background": chrome,
+        "breadcrumb.foreground": muted,
+        "breadcrumb.focusForeground": text,
+        "gitDecoration.modifiedResourceForeground": p["gold"].hex(),
+        "gitDecoration.untrackedResourceForeground": p["blush"].hex(),
+        "gitDecoration.deletedResourceForeground": p["ember"].hex(),
+        "gitDecoration.ignoredResourceForeground": p["muted"].tone(0.4, p["muted"].saturation).hex(),
+    }
+
+
+def vscode_tokens(p):
+    def rule(scopes, color, style=None):
+        settings = {"foreground": color.hex()}
+        if style:
+            settings["fontStyle"] = style
+        return {"scope": scopes, "settings": settings}
+    return {"textMateRules": [
+        rule(["comment", "punctuation.definition.comment"], p["muted"], "italic"),
+        rule(["string", "string.quoted", "string.template"], p["gold"]),
+        rule(["constant.numeric", "constant.language", "constant.character", "support.constant"], p["ember"]),
+        rule(["keyword", "storage", "storage.type", "storage.modifier", "keyword.control", "keyword.operator.new"], p["petal"]),
+        rule(["entity.name.function", "support.function", "meta.function-call"], p["blush"]),
+        rule(["entity.name.type", "entity.name.class", "support.type", "support.class", "entity.other.inherited-class"], p["ember"]),
+        rule(["variable", "variable.other", "meta.definition.variable"], p["text"]),
+        rule(["variable.parameter"], p["soft"], "italic"),
+        rule(["entity.name.tag"], p["petal"]),
+        rule(["entity.other.attribute-name"], p["gold"]),
+        rule(["punctuation", "meta.brace"], p["soft"]),
+    ]}
+
+
+def render_vscode(p):
+    try:
+        settings = json.loads(VSCODE_SETTINGS.read_text())
+    except json.JSONDecodeError as error:
+        print(f"wallpaper-colors: skipping VS Code, {VSCODE_SETTINGS} is not plain JSON ({error})", file=sys.stderr)
+        return
+    settings["workbench.colorTheme"] = "Default Dark Modern"
+    settings["workbench.colorCustomizations"] = vscode_colors(p)
+    settings["editor.tokenColorCustomizations"] = vscode_tokens(p)
+    write(VSCODE_SETTINGS, json.dumps(settings, indent=4) + "\n")
+
+
+def hue_family(color):
+    degrees = color.hue * 360
+    for limit, family in ((15, "red"), (45, "orange"), (70, "yellow"), (165, "green"), (195, "cyan"), (255, "blue"), (345, "purple")):
+        if degrees < limit:
+            return family
+    return "red"
+
+
+def jetbrains_recolor(match, p, syntax):
+    value, alpha = match.group(1), match.group(2) or ""
+    color = Color.from_rgb(*(int(value[i:i + 2], 16) for i in (0, 2, 4)))
+    if color.saturation < 0.15 or color.lightness < 0.04:
+        tint = min(p["base"].saturation, 0.25) * (0.8 if color.lightness < 0.5 else 0.4)
+        recolored = Color(p["base"].hue, color.lightness, tint)
+    else:
+        family = hue_family(color)
+        foreground_roles = {
+            "orange": p["petal"], "green": p["gold"], "blue": p["blush"], "purple": p["ember"],
+            "cyan": p["ember"].tone(0.8, p["ember"].saturation), "yellow": p["gold"].tone(0.66, p["gold"].saturation),
+        }
+        if syntax and color.lightness >= 0.4 and family in foreground_roles:
+            recolored = foreground_roles[family]
+        elif family in ("blue", "purple"):
+            recolored = Color(p["petal"].hue, color.lightness, min(color.saturation, p["petal"].saturation))
+        else:
+            return match.group(0)
+    prefix = "#" if match.group(0).startswith("#") else ""
+    return prefix + recolored.hex()[1:].upper() + alpha
+
+
+def recolor_json_value(value, p):
+    if isinstance(value, dict):
+        return {key: recolor_json_value(item, p) for key, item in value.items()}
+    if isinstance(value, str) and value.startswith("#") and HEX_COLOR.match(value):
+        return HEX_COLOR.sub(lambda match: jetbrains_recolor(match, p, False), value)
+    return value
+
+
+def intellij_theme(p):
+    islands = json.loads((INTELLIJ_TEMPLATES / "islands-dark.theme.json").read_text())
+    parent_colors = json.loads((INTELLIJ_TEMPLATES / "expui-dark.theme.json").read_text())["colors"]
+    theme = recolor_json_value(islands, p)
+    theme["name"] = "Rice"
+    theme["author"] = "wallpaper-colors"
+    theme["editorScheme"] = "/rice.xml"
+    theme["colors"] = {**recolor_json_value(parent_colors, p), **theme["colors"], "ForegroundDefault": p["text"].hex()}
+    return json.dumps(theme, indent=2)
+
+
+def intellij_scheme(p):
+    scheme = (INTELLIJ_TEMPLATES / "islands-dark-scheme.xml").read_text()
+    scheme = scheme.replace('<scheme name="Islands Dark"', '<scheme name="Rice"', 1)
+    value = re.compile(r'(value=")([0-9A-Fa-f]{6})(")')
+    return value.sub(lambda match: match.group(1) + HEX_COLOR.sub(lambda inner: jetbrains_recolor(inner, p, True), match.group(2)) + match.group(3), scheme)
+
+
+def render_intellij(p):
+    theme, scheme = intellij_theme(p), intellij_scheme(p)
+    for data_dir in sorted(JETBRAINS_DATA.glob("IntelliJIdea*")):
+        jar = data_dir / "rice-theme/lib/rice-theme.jar"
+        jar.parent.mkdir(parents=True, exist_ok=True)
+        temporary = jar.with_name(jar.name + ".tmp")
+        with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("META-INF/plugin.xml", INTELLIJ_PLUGIN_XML)
+            archive.writestr("rice.theme.json", theme)
+            archive.writestr("rice.xml", scheme)
+        temporary.replace(jar)
+
+
+def telegram_color(value, alpha, p):
+    color = Color.from_rgb(*(int(value[i:i + 2], 16) for i in (0, 2, 4)))
+    tint = min(p["base"].saturation, 0.25)
+    translucent = bool(alpha) and alpha.lower() != "ff"
+    if color.saturation < 0.15:
+        lightness = 0.08 + (1 - color.lightness) * 0.85
+        return Color(p["base"].hue, lightness, tint * (0.5 if lightness < 0.5 else 0.3))
+    family = hue_family(color)
+    if family not in ("blue", "cyan", "purple", "green"):
+        return color
+    hue = p["ember"].hue if family == "green" else p["petal"].hue
+    if color.lightness > 0.8:
+        return Color(hue, 1.08 - color.lightness, min(color.saturation, 0.35))
+    if translucent or color.lightness < 0.35:
+        return Color(hue, min(color.lightness, 0.22), min(color.saturation, 0.35))
+    return Color(hue, max(color.lightness, 0.6), min(color.saturation, p["petal"].saturation))
+
+
+def telegram_palette(p):
+    lines = []
+    for name, value, alpha in TELEGRAM_COLOR_LINE.findall(TELEGRAM_PALETTE.read_text()):
+        if name.startswith(TELEGRAM_KEPT_PREFIXES):
+            continue
+        lines.append(f"{name}: {telegram_color(value, alpha, p).hex()}{alpha or ''};")
+    return "\n".join(lines) + "\n"
+
+
+def render_telegram(p):
+    background = subprocess.run(
+        ["magick", f"{WALLPAPER_LINK.resolve()}[0]", "-resize", "1920x1080^", "-fill", app_surfaces(p)[0.08].hex(), "-colorize", "45%", "-quality", "88", "jpg:-"],
+        check=True,
+        capture_output=True,
+    ).stdout
+    temporary = TELEGRAM_THEME.with_name(TELEGRAM_THEME.name + ".tmp")
+    with zipfile.ZipFile(temporary, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("colors.tdesktop-theme", telegram_palette(p))
+        archive.writestr("background.jpg", background)
+    temporary.replace(TELEGRAM_THEME)
+
+
+def kde_color_sets(p):
+    s = app_surfaces(p)
+    rgb = lambda color: ",".join(str(channel) for channel in color.rgb())
+    selection = p["petal"].tone(0.4, min(p["petal"].saturation, 0.55))
+    foregrounds = {
+        "ForegroundNormal": rgb(p["text"]),
+        "ForegroundInactive": rgb(p["muted"]),
+        "ForegroundActive": rgb(p["petal"]),
+        "ForegroundLink": rgb(p["petal"]),
+        "ForegroundVisited": rgb(p["ember"]),
+        "ForegroundNegative": rgb(Color(0.0, 0.66, 0.7)),
+        "ForegroundNeutral": rgb(p["gold"]),
+        "ForegroundPositive": rgb(Color(0.36, 0.62, 0.45)),
+        "DecorationFocus": rgb(p["petal"]),
+        "DecorationHover": rgb(p["blush"]),
+    }
+    def colour_set(normal, alternate):
+        return {"BackgroundNormal": rgb(normal), "BackgroundAlternate": rgb(alternate), **foregrounds}
+    return {
+        "Colors:View": colour_set(s[0.1], s[0.12]),
+        "Colors:Window": colour_set(s[0.08], s[0.1]),
+        "Colors:Button": colour_set(s[0.14], s[0.17]),
+        "Colors:Tooltip": colour_set(s[0.12], s[0.14]),
+        "Colors:Complementary": colour_set(s[0.08], s[0.1]),
+        "Colors:Header": colour_set(s[0.08], s[0.1]),
+        "Colors:Header][Inactive": colour_set(s[0.08], s[0.1]),
+        "Colors:Selection": {**colour_set(selection, selection.tone(0.36, selection.saturation)), "ForegroundNormal": rgb(p["text"]), "ForegroundInactive": rgb(p["soft"])},
+        "WM": {
+            "activeBackground": rgb(s[0.08]), "activeForeground": rgb(p["text"]), "activeBlend": rgb(p["petal"]),
+            "inactiveBackground": rgb(s[0.08]), "inactiveForeground": rgb(p["muted"]), "inactiveBlend": rgb(p["muted"]),
+        },
+    }
+
+
+def render_kde(p):
+    for group, entries in kde_color_sets(p).items():
+        for key, value in entries.items():
+            subprocess.run(["kwriteconfig6", "--file", "kdeglobals", *[arg for part in group.split("][") for arg in ("--group", part)], "--key", key, value], check=True)
+    subprocess.run(["kwriteconfig6", "--file", "kdeglobals", "--group", "General", "--key", "ColorScheme", "Rice"], check=True)
+    subprocess.run(["kwriteconfig6", "--file", "kdeglobals", "--group", "UiSettings", "--key", "ColorScheme", "Rice"], check=True)
+
+
+def render_fastfetch(p):
+    temporary = FASTFETCH_LOGO.with_name("fastfetch-logo.tmp.png")
+    subprocess.run(["vipsthumbnail", str(WALLPAPER_LINK.resolve()), "--smartcrop", "attention", "-s", "480x480", "-o", str(temporary)], check=True, capture_output=True)
+    temporary.replace(FASTFETCH_LOGO)
+    rule = p["petal"].tone(0.38, min(p["petal"].saturation, 0.45))
+    tokens = {
+        "petal": p["petal"].hex(), "ember": p["ember"].hex(), "gold": p["gold"].hex(), "blush": p["blush"].hex(),
+        "muted": p["muted"].hex(), "text": p["text"].hex(), "rule": ";".join(str(channel) for channel in rule.rgb()),
+        "logo": str(FASTFETCH_LOGO),
+    }
+    config = FASTFETCH_TEMPLATE.read_text()
+    for name, value in tokens.items():
+        config = config.replace("{{" + name + "}}", value)
+    write(FASTFETCH_CONFIG, config)
+
+
+def apply_live(borders):
+    subprocess.run(["pkill", "-SIGUSR2", "-x", "waybar"], check=False)
+    subprocess.run(["dunstctl", "reload"], check=False, capture_output=True)
+    subprocess.run(["pkill", "-USR1", "-x", "kitty"], check=False)
+    runtime = Path(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{os.getuid()}"))
+    for socket in runtime.glob("pcdeck-kitty-*.sock"):
+        subprocess.run(["kitten", "@", "--to", f"unix:{socket}", "set-colors", "--all", "--configured", str(STATE_DIR / "kitty-colors.conf")], check=False, capture_output=True, timeout=5)
+    batch = "; ".join([
+        f"keyword general:col.active_border {borders['borderActive']}",
+        f"keyword general:col.inactive_border {borders['borderInactive']}",
+        f"keyword group:col.border_active {borders['borderActive']}",
+        f"keyword group:col.border_inactive {borders['borderInactive']}",
+        f"keyword group:groupbar:col.active {borders['groupActive']}",
+        f"keyword group:groupbar:col.inactive {borders['groupInactive']}",
+    ])
+    subprocess.run(["hyprctl", "--batch", batch], check=False, capture_output=True)
+    subprocess.run(["spicetify", "refresh", "-n"], check=False, capture_output=True)
+    for theme in ("Adwaita-dark", "Rice"):
+        subprocess.run(["gsettings", "set", "org.gnome.desktop.interface", "gtk-theme", theme], check=False)
+
+
+def main():
+    if len(sys.argv) != 2:
+        sys.exit("usage: wallpaper-colors <image>")
+    palette = build_palette(sample_colors(sys.argv[1]))
+    borders = hyprland_borders(palette)
+    write(WAYBAR_COLORS, waybar_css(palette))
+    write(SWAYOSD_COLORS, waybar_css(palette))
+    write(STATE_DIR / "colors.rasi", rofi_rasi(palette))
+    write(STATE_DIR / "hyprland-colors.conf", "".join(f"${name} = {value}\n" for name, value in borders.items()))
+    write(STATE_DIR / "kitty-colors.conf", kitty_conf(palette))
+    write(STATE_DIR / "hyprlock-colors.conf", hyprlock_colors(palette))
+    write(DUNST_DROPIN, dunst_conf(palette))
+    write(BTOP_THEME, btop_theme(palette))
+    write(STATE_DIR / "slurp-args", slurp_args(palette))
+    write(SATTY_DIR / "config.toml", satty_config(palette))
+    write(SATTY_DIR / "overrides.css", satty_css(palette))
+    if PAPIRUS.is_dir():
+        render_folder_theme(palette["petal"])
+    if SPICETIFY_COLORS.parent.is_dir():
+        write(SPICETIFY_COLORS, spicetify_ini(palette))
+    if VESKTOP_QUICKCSS.parent.parent.is_dir():
+        write(VESKTOP_QUICKCSS, vesktop_css(palette))
+    if FIREFOX_THEME.is_dir():
+        render_firefox(palette)
+    if SDDM_STATE.is_dir() and os.access(SDDM_STATE, os.W_OK):
+        render_sddm(palette)
+    if VSCODE_SETTINGS.exists():
+        render_vscode(palette)
+    if INTELLIJ_TEMPLATES.is_dir():
+        render_intellij(palette)
+    if FASTFETCH_TEMPLATE.exists() and shutil.which("vipsthumbnail"):
+        render_fastfetch(palette)
+    if TELEGRAM_PALETTE.exists():
+        render_telegram(palette)
+    if shutil.which("kwriteconfig6"):
+        render_kde(palette)
+    replacements = rose_pine_replacements(palette)
+    render_gtk_theme(replacements)
+    render_kvantum_theme(replacements)
+    apply_live(borders)
+
+
+if __name__ == "__main__":
+    main()
