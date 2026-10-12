@@ -1,7 +1,8 @@
 HISTFILE="$ZDOTDIR/.zsh_history"
 HISTSIZE=50000
 SAVEHIST=50000
-setopt extended_history share_history hist_ignore_dups hist_ignore_space hist_expire_dups_first hist_verify
+HISTORY_IGNORE='(c|clear|ls|l|ll|pwd|exit|..)'
+setopt extended_history share_history hist_ignore_all_dups hist_ignore_space hist_expire_dups_first hist_verify
 setopt auto_cd auto_pushd pushd_ignore_dups pushd_minus interactive_comments
 
 eval "$(dircolors -b)"
