@@ -1,272 +1,416 @@
-//
-// This file is part of SDDM Sugar Candy.
-// A theme for the Simple Display Desktop Manager.
-//
-// Copyright (C) 2018–2020 Marian Arlt
-//
-// SDDM Sugar Candy is free software: you can redistribute it and/or modify it
-// under the terms of the GNU General Public License as published by the
-// Free Software Foundation, either version 3 of the License, or any later version.
-//
-// You are required to preserve this and any additional legal notices, either
-// contained in this file or in other files that you received along with
-// SDDM Sugar Candy that refer to the author(s) in accordance with
-// sections §4, §5 and specifically §7b of the GNU General Public License.
-//
-// SDDM Sugar Candy is distributed in the hope that it will be useful,
-// but WITHOUT ANY WARRANTY; without even the implied warranty of
-// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
-// GNU General Public License for more details.
-//
-// You should have received a copy of the GNU General Public License
-// along with SDDM Sugar Candy. If not, see <https://www.gnu.org/licenses/>
-//
+import QtQuick
+import QtQuick.Effects
+import QtQuick.Shapes
 
-import QtQuick 2.11
-import QtQuick.Layouts 1.11
-import QtQuick.Controls 2.4
-import QtGraphicalEffects 1.0
-import "Components"
-
-Pane {
+Rectangle {
     id: root
 
-    height: config.ScreenHeight || Screen.height
-    width: config.ScreenWidth || Screen.ScreenWidth
+    readonly property real unit: height / 1440
+    readonly property color hourColor: config.HourColor
+    readonly property color minuteColor: config.MinuteColor
+    readonly property color textColor: config.TextColor
+    readonly property color mutedColor: config.MutedColor
+    readonly property color fieldColor: config.FieldColor
+    readonly property color fieldBorderColor: config.FieldBorderColor
+    readonly property color failColor: config.FailColor
+    readonly property string fontFamily: config.Font
 
-    LayoutMirroring.enabled: config.ForceRightToLeft == "true" ? true : Qt.application.layoutDirection === Qt.RightToLeft
-    LayoutMirroring.childrenInherit: true
+    property int userIndex: Math.max(userModel.lastIndex, 0)
+    property int sessionIndex: Math.max(sessionModel.lastIndex, 0)
+    property string userName: userModel.lastUser
+    property string sessionName: ""
+    property bool loggingIn: false
+    property bool failed: false
 
-    padding: config.ScreenPadding
-    palette.button: "transparent"
-    palette.highlight: config.AccentColor
-    palette.text: config.MainColor
-    palette.buttonText: config.MainColor
-    palette.window: config.BackgroundColor
+    function withAlpha(color, alpha) {
+        return Qt.rgba(color.r, color.g, color.b, alpha)
+    }
 
-    font.family: config.Font
-    font.pointSize: config.FontSize !== "" ? config.FontSize : parseInt(height / 80)
-    focus: true
+    function login() {
+        if (loggingIn || userName === "")
+            return
+        loggingIn = true
+        sddm.login(userName, password.text, sessionIndex)
+    }
 
-    property bool leftleft: config.HaveFormBackground == "true" &&
-        config.PartialBlur == "false" &&
-        config.FormPosition == "left" &&
-        config.BackgroundImageHAlignment == "left"
+    width: Screen.width
+    height: Screen.height
+    color: fieldColor
 
-        property bool leftcenter: config.HaveFormBackground == "true" &&
-            config.PartialBlur == "false" &&
-            config.FormPosition == "left" &&
-            config.BackgroundImageHAlignment == "center"
+    Connections {
+        target: sddm
 
-            property bool rightright: config.HaveFormBackground == "true" &&
-                config.PartialBlur == "false" &&
-                config.FormPosition == "right" &&
-                config.BackgroundImageHAlignment == "right"
+        function onLoginFailed() {
+            root.loggingIn = false
+            root.failed = true
+            password.text = ""
+            password.forceActiveFocus()
+            shake.restart()
+        }
 
-                property bool rightcenter: config.HaveFormBackground == "true" &&
-                    config.PartialBlur == "false" &&
-                    config.FormPosition == "right" &&
-                    config.BackgroundImageHAlignment == "center"
+        function onLoginSucceeded() {
+            root.loggingIn = false
+        }
+    }
 
-                    Item {
-                        id: sizeHelper
+    Instantiator {
+        model: userModel
+        delegate: QtObject {
+            required property int index
+            required property string name
+            Component.onCompleted: if (index === root.userIndex) root.userName = name
+        }
+    }
 
-                        anchors.fill: parent
-                        height: parent.height
-                        width: parent.width
+    Instantiator {
+        model: sessionModel
+        delegate: QtObject {
+            required property int index
+            required property string name
+            readonly property bool current: index === root.sessionIndex
+            onCurrentChanged: if (current) root.sessionName = name
+            Component.onCompleted: if (current) root.sessionName = name
+        }
+    }
 
-                        Rectangle {
-                            id: tintLayer
+    Image {
+        id: wallpaper
+        anchors.fill: parent
+        source: config.Background
+        fillMode: Image.PreserveAspectCrop
+        asynchronous: false
+        cache: false
+        visible: false
+    }
+
+    MultiEffect {
+        anchors.fill: parent
+        source: wallpaper
+        visible: wallpaper.status === Image.Ready
+        blurEnabled: true
+        blur: Number(config.Blur)
+        blurMax: 64
+        autoPaddingEnabled: false
+        brightness: -Number(config.Dim) * 0.5
+        saturation: 0.15
+    }
+
+    Rectangle {
+        anchors.fill: parent
+        gradient: Gradient {
+            GradientStop { position: 0.0; color: root.withAlpha(root.fieldColor, 0.25) }
+            GradientStop { position: 0.55; color: root.withAlpha(root.fieldColor, 0.1) }
+            GradientStop { position: 1.0; color: root.withAlpha(root.fieldColor, 0.6) }
+        }
+    }
+
+    Timer {
+        interval: 1000
+        running: true
+        repeat: true
+        triggeredOnStart: true
+        onTriggered: {
+            const now = new Date()
+            hours.text = Qt.formatTime(now, "HH")
+            minutes.text = Qt.formatTime(now, "mm")
+            day.text = Qt.formatDate(now, "dd MMM")
+            weekday.text = Qt.formatDate(now, "dddd")
+        }
+    }
+
+    Column {
+        id: clock
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.verticalCenter: parent.verticalCenter
+        anchors.verticalCenterOffset: -110 * root.unit
+        spacing: 28 * root.unit
+
+        Column {
+            anchors.horizontalCenter: parent.horizontalCenter
+            spacing: -120 * root.unit
+
+            Text {
+                id: hours
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: root.hourColor
+                font.family: root.fontFamily
+                font.weight: Font.DemiBold
+                font.pixelSize: 290 * root.unit
+            }
+
+            Text {
+                id: minutes
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: root.minuteColor
+                font.family: root.fontFamily
+                font.weight: Font.DemiBold
+                font.pixelSize: 290 * root.unit
+            }
+        }
+
+        Column {
+            anchors.horizontalCenter: parent.horizontalCenter
+
+            Text {
+                id: day
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: root.textColor
+                font.family: root.fontFamily
+                font.weight: Font.DemiBold
+                font.pixelSize: 34 * root.unit
+            }
+
+            Text {
+                id: weekday
+                anchors.horizontalCenter: parent.horizontalCenter
+                color: root.withAlpha(root.textColor, 0.8)
+                font.family: root.fontFamily
+                font.weight: Font.Medium
+                font.pixelSize: 26 * root.unit
+            }
+        }
+    }
+
+    Column {
+        id: loginBox
+        anchors.horizontalCenter: parent.horizontalCenter
+        anchors.bottom: parent.bottom
+        anchors.bottomMargin: 110 * root.unit
+        spacing: 16 * root.unit
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: root.userName
+            color: root.textColor
+            font.family: root.fontFamily
+            font.weight: Font.Medium
+            font.pixelSize: 24 * root.unit
+            font.capitalization: Font.Capitalize
+
+            MouseArea {
+                anchors.fill: parent
+                anchors.margins: -8 * root.unit
+                enabled: userModel.count > 1
+                cursorShape: enabled ? Qt.PointingHandCursor : Qt.ArrowCursor
+                onClicked: root.userIndex = (root.userIndex + 1) % userModel.count
+            }
+        }
+
+        Rectangle {
+            id: field
+            width: 360 * root.unit
+            height: 64 * root.unit
+            radius: height / 2
+            color: root.withAlpha(root.fieldColor, 0.72)
+            border.width: 3 * root.unit
+            border.color: root.failed ? root.failColor
+                        : password.activeFocus ? root.withAlpha(root.fieldBorderColor, 0.85)
+                        : root.withAlpha(root.fieldBorderColor, 0.45)
+
+            Behavior on border.color { ColorAnimation { duration: 160 } }
+
+            TextInput {
+                id: password
+                anchors.fill: parent
+                anchors.leftMargin: 28 * root.unit
+                anchors.rightMargin: 28 * root.unit
+                verticalAlignment: TextInput.AlignVCenter
+                horizontalAlignment: TextInput.AlignHCenter
+                echoMode: TextInput.Password
+                passwordCharacter: "•"
+                passwordMaskDelay: 0
+                color: root.textColor
+                selectionColor: root.withAlpha(root.fieldBorderColor, 0.5)
+                font.family: root.fontFamily
+                font.pixelSize: (text.length > 0 ? 30 : 22) * root.unit
+                font.letterSpacing: text.length > 0 ? 6 * root.unit : 0
+                clip: true
+                focus: true
+                enabled: !root.loggingIn
+                cursorVisible: false
+                cursorDelegate: Item {}
+                onTextEdited: root.failed = false
+                onAccepted: root.login()
+                Keys.onEscapePressed: text = ""
+                Component.onCompleted: forceActiveFocus()
+            }
+
+            Text {
+                anchors.centerIn: parent
+                visible: password.text.length === 0
+                text: root.loggingIn ? "Logging in…" : root.failed ? "Wrong password" : "Password…"
+                color: root.failed ? root.failColor : root.withAlpha(root.mutedColor, 0.9)
+                font.family: root.fontFamily
+                font.italic: !root.failed
+                font.pixelSize: 22 * root.unit
+            }
+
+            SequentialAnimation {
+                id: shake
+                property real step: 10 * root.unit
+                NumberAnimation { target: field; property: "x"; to: -shake.step; duration: 50 }
+                NumberAnimation { target: field; property: "x"; to: shake.step; duration: 70 }
+                NumberAnimation { target: field; property: "x"; to: -shake.step / 2; duration: 60 }
+                NumberAnimation { target: field; property: "x"; to: 0; duration: 50 }
+            }
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            text: "Caps Lock is on"
+            color: root.mutedColor
+            opacity: keyboard.capsLock ? 1 : 0
+            font.family: root.fontFamily
+            font.pixelSize: 18 * root.unit
+        }
+    }
+
+    Item {
+        id: sessionPicker
+        anchors.left: parent.left
+        anchors.bottom: parent.bottom
+        anchors.leftMargin: 48 * root.unit
+        anchors.bottomMargin: 40 * root.unit
+        width: sessionLabel.width
+        height: sessionLabel.height
+        property bool open: false
+
+        Text {
+            id: sessionLabel
+            text: root.sessionName
+            color: sessionArea.containsMouse || sessionPicker.open ? root.textColor : root.mutedColor
+            font.family: root.fontFamily
+            font.pixelSize: 22 * root.unit
+
+            MouseArea {
+                id: sessionArea
+                anchors.fill: parent
+                anchors.margins: -10 * root.unit
+                hoverEnabled: true
+                cursorShape: Qt.PointingHandCursor
+                onClicked: sessionPicker.open = !sessionPicker.open
+            }
+        }
+
+        Rectangle {
+            visible: sessionPicker.open
+            anchors.left: parent.left
+            anchors.leftMargin: -16 * root.unit
+            anchors.bottom: sessionLabel.top
+            anchors.bottomMargin: 16 * root.unit
+            width: sessionList.width + 32 * root.unit
+            height: sessionList.height + 20 * root.unit
+            radius: 18 * root.unit
+            color: root.withAlpha(root.fieldColor, 0.85)
+            border.width: 2 * root.unit
+            border.color: root.withAlpha(root.fieldBorderColor, 0.35)
+
+            Column {
+                id: sessionList
+                anchors.centerIn: parent
+
+                Repeater {
+                    model: sessionModel
+                    delegate: Text {
+                        required property int index
+                        required property string name
+                        text: name
+                        width: Math.max(implicitWidth, 260 * root.unit)
+                        height: 44 * root.unit
+                        verticalAlignment: Text.AlignVCenter
+                        color: index === root.sessionIndex ? root.hourColor
+                             : itemArea.containsMouse ? root.textColor : root.mutedColor
+                        font.family: root.fontFamily
+                        font.pixelSize: 22 * root.unit
+
+                        MouseArea {
+                            id: itemArea
                             anchors.fill: parent
-                            width: parent.width
-                            height: parent.height
-                            color: "black"
-                            opacity: config.DimBackgroundImage
-                            z: 1
-                        }
-
-                        Rectangle {
-                            id: formBackground
-                            anchors.fill: form
-                            anchors.centerIn: form
-                            color: root.palette.window
-                            visible: config.HaveFormBackground == "true" ? true : false
-                            opacity: config.PartialBlur == "true" ? 0.3 : 1
-                            z: 1
-                        }
-
-                        LoginForm {
-                            id: form
-
-                            height: virtualKeyboard.state == "visible" ? parent.height - virtualKeyboard.implicitHeight : parent.height
-                            width: parent.width / 2.5
-                            anchors.horizontalCenter: config.FormPosition == "center" ? parent.horizontalCenter : undefined
-                            anchors.left: config.FormPosition == "left" ? parent.left : undefined
-                            anchors.right: config.FormPosition == "right" ? parent.right : undefined
-                            virtualKeyboardActive: virtualKeyboard.state == "visible" ? true : false
-                            z: 1
-                        }
-
-                        Button {
-                            id: vkb
-                            onClicked: virtualKeyboard.switchState()
-                            visible: virtualKeyboard.status == Loader.Ready && config.ForceHideVirtualKeyboardButton == "false"
-                            anchors.bottom: parent.bottom
-                            anchors.bottomMargin: implicitHeight
-                            anchors.horizontalCenter: form.horizontalCenter
-                            z: 1
-                            contentItem: Text {
-                                text: config.TranslateVirtualKeyboardButton || "Virtual Keyboard"
-                                color: parent.visualFocus ? palette.highlight : palette.text
-                                font.pointSize: root.font.pointSize * 0.8
-                            }
-                            background: Rectangle {
-                                id: vkbbg
-                                color: "transparent"
+                            hoverEnabled: true
+                            cursorShape: Qt.PointingHandCursor
+                            onClicked: {
+                                root.sessionIndex = index
+                                sessionPicker.open = false
+                                password.forceActiveFocus()
                             }
                         }
+                    }
+                }
+            }
+        }
+    }
 
-                        Loader {
-                            id: virtualKeyboard
-                            source: "Components/VirtualKeyboard.qml"
-                            state: "hidden"
-                            property bool keyboardActive: item ? item.active : false
-                                onKeyboardActiveChanged: keyboardActive ? state = "visible" : state = "hidden"
-                                width: parent.width
-                                z: 1
-                                function switchState()
-                                { state = state == "hidden" ? "visible" : "hidden" }
-                                    states: [
-                                        State {
-                                            name: "visible"
-                                            PropertyChanges {
-                                                target: form
-                                                systemButtonVisibility: false
-                                                clockVisibility: false
-                                            }
-                                            PropertyChanges {
-                                                target: virtualKeyboard
-                                                y: root.height - virtualKeyboard.height
-                                                opacity: 1
-                                            }
-                                        },
-                                        State {
-                                            name: "hidden"
-                                            PropertyChanges {
-                                                target: virtualKeyboard
-                                                y: root.height - root.height/4
-                                                opacity: 0
-                                            }
-                                        }
-                                    ]
-                                    transitions: [
-                                        Transition {
-                                            from: "hidden"
-                                            to: "visible"
-                                            SequentialAnimation {
-                                                ScriptAction {
-                                                    script: {
-                                                        virtualKeyboard.item.activated = true;
-                                                        Qt.inputMethod.show();
-                                                    }
-                                                }
-                                                ParallelAnimation {
-                                                    NumberAnimation {
-                                                        target: virtualKeyboard
-                                                        property: "y"
-                                                        duration: 100
-                                                        easing.type: Easing.OutQuad
-                                                    }
-                                                    OpacityAnimator {
-                                                        target: virtualKeyboard
-                                                        duration: 100
-                                                        easing.type: Easing.OutQuad
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        Transition {
-                                            from: "visible"
-                                            to: "hidden"
-                                            SequentialAnimation {
-                                                ParallelAnimation {
-                                                    NumberAnimation {
-                                                        target: virtualKeyboard
-                                                        property: "y"
-                                                        duration: 100
-                                                        easing.type: Easing.InQuad
-                                                    }
-                                                    OpacityAnimator {
-                                                        target: virtualKeyboard
-                                                        duration: 100
-                                                        easing.type: Easing.InQuad
-                                                    }
-                                                }
-                                                ScriptAction {
-                                                    script: {
-                                                        Qt.inputMethod.hide();
-                                                    }
-                                                }
-                                            }
-                                        }
-                                    ]
-                                }
+    Row {
+        anchors.right: parent.right
+        anchors.bottom: parent.bottom
+        anchors.rightMargin: 44 * root.unit
+        anchors.bottomMargin: 34 * root.unit
+        spacing: 20 * root.unit
 
+        PowerButton {
+            visible: sddm.canSuspend
+            first: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"
+            onClicked: sddm.suspend()
+        }
 
-                                Image {
-                                    id: backgroundImage
+        PowerButton {
+            visible: sddm.canReboot
+            first: "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"
+            second: "M3 3v5h5"
+            onClicked: sddm.reboot()
+        }
 
-                                    height: parent.height
-                                    width: config.HaveFormBackground == "true" && config.FormPosition != "center" && config.PartialBlur != "true" ? parent.width - formBackground.width : parent.width
-                                    anchors.left: leftleft ||
-                                    leftcenter ?
-                                    formBackground.right : undefined
+        PowerButton {
+            visible: sddm.canPowerOff
+            first: "M12 2v10"
+            second: "M18.4 6.6a9 9 0 1 1-12.77.04"
+            onClicked: sddm.powerOff()
+        }
+    }
 
-                                    anchors.right: rightright ||
-                                    rightcenter ?
-                                    formBackground.left : undefined
+    component IconStroke: ShapePath {
+        required property color stroke
+        strokeColor: stroke
+        strokeWidth: 2
+        fillColor: "transparent"
+        capStyle: ShapePath.RoundCap
+        joinStyle: ShapePath.RoundJoin
+    }
 
-                                    horizontalAlignment: config.BackgroundImageHAlignment == "left" ?
-                                    Image.AlignLeft :
-                                    config.BackgroundImageHAlignment == "right" ?
-                                    Image.AlignRight : Image.AlignHCenter
+    component PowerButton: Item {
+        id: button
+        property string first
+        property string second
+        readonly property color stroke: area.containsMouse ? root.hourColor : root.mutedColor
+        signal clicked()
 
-                                    verticalAlignment: config.BackgroundImageVAlignment == "top" ?
-                                    Image.AlignTop :
-                                    config.BackgroundImageVAlignment == "bottom" ?
-                                    Image.AlignBottom : Image.AlignVCenter
-                                    source: config.BackgroundS.split(" ")[Math.floor(Math.random() * config.BackgroundS.split(" ").length)]
-                                    fillMode: config.ScaleImageCropped == "true" ? Image.PreserveAspectCrop : Image.PreserveAspectFit
-                                    asynchronous: true
-                                }
+        width: 44 * root.unit
+        height: width
 
-                                MouseArea {
-                                    anchors.fill: backgroundImage
-                                    onClicked: parent.forceActiveFocus()
-                                }
+        Shape {
+            anchors.centerIn: parent
+            width: 24
+            height: 24
+            scale: 30 * root.unit / 24
+            preferredRendererType: Shape.CurveRenderer
 
-                                ShaderEffectSource {
-                                    id: blurMask
+            IconStroke {
+                stroke: button.stroke
+                PathSvg { path: button.first }
+            }
 
-                                    sourceItem: backgroundImage
-                                    width: form.width
-                                    height: parent.height
-                                    anchors.centerIn: form
-                                    sourceRect: Qt.rect(x, y, width, height)
-                                    visible: config.FullBlur == "true" || config.PartialBlur == "true" ? true : false
-                                }
+            IconStroke {
+                stroke: button.stroke
+                PathSvg { path: button.second }
+            }
+        }
 
-                                GaussianBlur {
-                                    id: blur
-
-                                    height: parent.height
-                                    width: config.FullBlur == "true" ? parent.width : form.width
-                                    source: config.FullBlur == "true" ? backgroundImage : blurMask
-                                    radius: config.BlurRadius
-                                    samples: config.BlurRadius * 2 + 1
-                                    cached: true
-                                    anchors.centerIn: config.FullBlur == "true" ? parent : form
-                                    visible: config.FullBlur == "true" || config.PartialBlur == "true" ? true : false
-                                }
-                            }
-                        }
+        MouseArea {
+            id: area
+            anchors.fill: parent
+            hoverEnabled: true
+            cursorShape: Qt.PointingHandCursor
+            onClicked: button.clicked()
+        }
+    }
+}
