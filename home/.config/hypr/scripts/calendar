@@ -1,0 +1,234 @@
+#!/usr/bin/env python3
+import calendar
+import datetime
+import os
+import re
+import sys
+from pathlib import Path
+
+LAYER_SHELL_LIBRARY = "libgtk4-layer-shell.so"
+if LAYER_SHELL_LIBRARY not in os.environ.get("LD_PRELOAD", ""):
+    os.environ["LD_PRELOAD"] = " ".join(filter(None, [LAYER_SHELL_LIBRARY, os.environ.get("LD_PRELOAD")]))
+    os.execv(sys.executable, [sys.executable, *sys.argv])
+
+import gi
+
+gi.require_version("Gdk", "4.0")
+gi.require_version("Gtk", "4.0")
+gi.require_version("Gtk4LayerShell", "1.0")
+from gi.repository import Gdk, Gtk, Gtk4LayerShell as LayerShell
+
+APPLICATION_ID = "rice.calendar"
+LAYER_NAMESPACE = "rice-calendar"
+COLORS_FILE = Path.home() / ".config/waybar/colors.css"
+DEFINE_COLOR = re.compile(r"@define-color\s+(\w+)\s+([^;]+);")
+RGBA = re.compile(r"rgba\((\d+),\s*(\d+),\s*(\d+),\s*[\d.]+\)")
+BAR_CLEARANCE = 6
+PANEL_OPACITY = 0.82
+WEEKS_SHOWN = 6
+MONDAY_FIRST = calendar.Calendar(firstweekday=calendar.MONDAY)
+
+STYLESHEET = """
+window {{ background: transparent; }}
+.panel {{
+    background: {panel};
+    border: 1px solid {edge};
+    border-radius: 18px;
+    padding: 18px 16px 14px 16px;
+    font-family: Rubik;
+    color: {text};
+}}
+.weekday-name {{ font-size: 12px; color: {muted}; }}
+.date {{ font-size: 26px; font-weight: 600; color: {text}; }}
+.week-badge {{
+    font-size: 11px;
+    font-weight: 600;
+    color: {petal};
+    background: {pill};
+    border-radius: 999px;
+    padding: 3px 10px;
+}}
+.header {{ margin: 14px 0 6px 0; }}
+.month {{ font-size: 14px; font-weight: 600; color: {petal}; }}
+button.nav, button.month-button {{
+    background: none;
+    border: none;
+    box-shadow: none;
+    outline: none;
+    border-radius: 999px;
+    padding: 2px 8px;
+    min-height: 26px;
+    color: {muted};
+}}
+button.nav:hover, button.month-button:hover {{ background: {pillHover}; color: {text}; }}
+.column-head {{ font-size: 11px; font-weight: 600; color: {gold}; min-width: 34px; margin-bottom: 4px; }}
+.week-number {{ font-size: 10px; color: {muted}; min-width: 28px; }}
+.day {{ font-size: 13px; min-width: 34px; min-height: 30px; border-radius: 999px; color: {text}; }}
+.day.weekend {{ color: {blush}; }}
+.day.outside {{ color: alpha({muted}, 0.45); }}
+.day.today {{ background: {petal}; color: {ink}; font-weight: 700; }}
+"""
+
+
+def load_palette():
+    colors = dict(DEFINE_COLOR.findall(COLORS_FILE.read_text()))
+    red, green, blue = RGBA.match(colors["glass"]).groups()
+    colors["panel"] = f"rgba({red}, {green}, {blue}, {PANEL_OPACITY})"
+    colors["ink"] = f"rgb({red}, {green}, {blue})"
+    return colors
+
+
+def shown_weeks(year, month):
+    weeks = MONDAY_FIRST.monthdatescalendar(year, month)
+    while len(weeks) < WEEKS_SHOWN:
+        start = weeks[-1][-1] + datetime.timedelta(days=1)
+        weeks.append([start + datetime.timedelta(days=offset) for offset in range(7)])
+    return weeks
+
+
+def shifted_month(year, month, delta):
+    index = year * 12 + month - 1 + delta
+    return index // 12, index % 12 + 1
+
+
+def label(text, *classes, xalign=0.5):
+    widget = Gtk.Label(label=text, xalign=xalign)
+    for name in classes:
+        widget.add_css_class(name)
+    return widget
+
+
+class CalendarWindow(Gtk.ApplicationWindow):
+    def __init__(self, application):
+        super().__init__(application=application)
+        self.today = datetime.date.today()
+        self.year, self.month = self.today.year, self.today.month
+        self.was_active = False
+        self.configure_layer()
+        self.build()
+        self.connect_input()
+
+    def configure_layer(self):
+        LayerShell.init_for_window(self)
+        LayerShell.set_namespace(self, LAYER_NAMESPACE)
+        LayerShell.set_layer(self, LayerShell.Layer.OVERLAY)
+        LayerShell.set_anchor(self, LayerShell.Edge.TOP, True)
+        LayerShell.set_margin(self, LayerShell.Edge.TOP, BAR_CLEARANCE)
+        LayerShell.set_keyboard_mode(self, LayerShell.KeyboardMode.ON_DEMAND)
+
+    def build(self):
+        panel = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        panel.add_css_class("panel")
+
+        summary = Gtk.Box(spacing=12)
+        heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, hexpand=True)
+        heading.append(label(self.today.strftime("%A"), "weekday-name", xalign=0))
+        heading.append(label(f"{self.today.day} {self.today.strftime('%B')}", "date", xalign=0))
+        summary.append(heading)
+        badge = label(f"Week {self.today.isocalendar().week}", "week-badge")
+        badge.set_valign(Gtk.Align.CENTER)
+        summary.append(badge)
+        panel.append(summary)
+
+        header = Gtk.Box()
+        header.add_css_class("header")
+        header.append(self.nav_button("go-previous-symbolic", -1))
+        self.month_label = label("", "month")
+        month_button = Gtk.Button(child=self.month_label, hexpand=True, tooltip_text="Back to today")
+        month_button.add_css_class("month-button")
+        month_button.connect("clicked", lambda _button: self.show_today())
+        header.append(month_button)
+        header.append(self.nav_button("go-next-symbolic", 1))
+        panel.append(header)
+
+        self.grid = Gtk.Grid(column_homogeneous=False, row_spacing=2, column_spacing=2)
+        panel.append(self.grid)
+        self.set_child(panel)
+        self.render_month()
+
+    def nav_button(self, icon, delta):
+        button = Gtk.Button(icon_name=icon)
+        button.add_css_class("nav")
+        button.connect("clicked", lambda _button: self.change_month(delta))
+        return button
+
+    def connect_input(self):
+        keys = Gtk.EventControllerKey()
+        keys.connect("key-pressed", self.on_key)
+        self.add_controller(keys)
+        scroll = Gtk.EventControllerScroll(flags=Gtk.EventControllerScrollFlags.VERTICAL | Gtk.EventControllerScrollFlags.DISCRETE)
+        scroll.connect("scroll", lambda _controller, _dx, dy: self.change_month(1 if dy > 0 else -1) or True)
+        self.add_controller(scroll)
+        self.connect("notify::is-active", self.on_focus_change)
+
+    def on_key(self, _controller, keyval, _keycode, _state):
+        actions = {
+            Gdk.KEY_Escape: self.close,
+            Gdk.KEY_q: self.close,
+            Gdk.KEY_Left: lambda: self.change_month(-1),
+            Gdk.KEY_h: lambda: self.change_month(-1),
+            Gdk.KEY_Right: lambda: self.change_month(1),
+            Gdk.KEY_l: lambda: self.change_month(1),
+            Gdk.KEY_Home: self.show_today,
+            Gdk.KEY_t: self.show_today,
+        }
+        action = actions.get(keyval)
+        if action:
+            action()
+        return action is not None
+
+    def on_focus_change(self, *_args):
+        if self.is_active():
+            self.was_active = True
+        elif self.was_active:
+            self.close()
+
+    def change_month(self, delta):
+        self.year, self.month = shifted_month(self.year, self.month, delta)
+        self.render_month()
+
+    def show_today(self):
+        self.year, self.month = self.today.year, self.today.month
+        self.render_month()
+
+    def render_month(self):
+        self.month_label.set_label(datetime.date(self.year, self.month, 1).strftime("%B %Y"))
+        while child := self.grid.get_first_child():
+            self.grid.remove(child)
+        self.grid.attach(label("", "week-number"), 0, 0, 1, 1)
+        for column, name in enumerate(calendar.day_abbr):
+            self.grid.attach(label(name[:2], "column-head"), column + 1, 0, 1, 1)
+        for row, week in enumerate(shown_weeks(self.year, self.month), start=1):
+            self.grid.attach(label(str(week[0].isocalendar().week), "week-number"), 0, row, 1, 1)
+            for column, day in enumerate(week):
+                classes = ["day"]
+                if day.month != self.month:
+                    classes.append("outside")
+                elif day.weekday() >= calendar.SATURDAY:
+                    classes.append("weekend")
+                if day == self.today:
+                    classes.append("today")
+                self.grid.attach(label(str(day.day), *classes), column + 1, row, 1, 1)
+
+
+class CalendarApplication(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id=APPLICATION_ID)
+        self.window = None
+
+    def do_startup(self):
+        Gtk.Application.do_startup(self)
+        provider = Gtk.CssProvider()
+        provider.load_from_string(STYLESHEET.format(**load_palette()))
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_USER + 1)
+
+    def do_activate(self):
+        if self.window:
+            self.window.close()
+            return
+        self.window = CalendarWindow(self)
+        self.window.present()
+
+
+if __name__ == "__main__":
+    sys.exit(CalendarApplication().run([sys.argv[0]]))

@@ -8,6 +8,7 @@ fastfetch
 fzf
 gnome-keyring
 grim
+gtk4-layer-shell
 gtk-update-icon-cache
 hypridle
 hyprland
@@ -27,6 +28,7 @@ papirus-icon-theme
 playerctl
 polkit-gnome
 python
+python-gobject
 qt5ct
 qt6ct
 rofi

@@ -7,6 +7,7 @@ export LESSHISTFILE="${LESSHISTFILE:-/tmp/less-hist}"
 export PARALLEL_HOME="$XDG_CONFIG_HOME/parallel"
 
 export BAT_THEME=ansi
+[[ -r "$XDG_STATE_HOME/rice/fzf-colors" ]] && export FZF_DEFAULT_OPTS_FILE="$XDG_STATE_HOME/rice/fzf-colors"
 export LESS=-R
 
 typeset -U path

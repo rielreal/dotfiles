@@ -39,22 +39,9 @@
     },
     "clock": {
         "format": "{:%a %d %b  %I:%M %p}",
-        "format-alt": "{:%H:%M:%S}",
-        "interval": 1,
-        "tooltip-format": "<tt>{calendar}</tt>",
-        "calendar": {
-            "mode": "month",
-            "on-scroll": 1,
-            "format": {
-                "months": "<span color='#ebbcba'><b>{}</b></span>",
-                "weekdays": "<span color='#f6c177'><b>{}</b></span>",
-                "today": "<span color='#eb6f92'><b><u>{}</u></b></span>"
-            }
-        },
-        "actions": {
-            "on-scroll-up": "shift_up",
-            "on-scroll-down": "shift_down"
-        }
+        "interval": 60,
+        "tooltip-format": "{:%A %d %B %Y}",
+        "on-click": "~/.config/hypr/scripts/calendar"
     },
     "mpris": {
         "format": "<span font_family='Material Symbols Rounded' size='120%' rise='-2pt'></span> {title} · {artist}",

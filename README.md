@@ -1,13 +1,13 @@
 # rice
 
-Hyprland desktop for Arch Linux where the whole system takes its colours from the current wallpaper. Pick a wallpaper and the bar, launcher, notifications, terminal, lock screen, GTK and Qt apps, folder icons and btop recolour to match, along with the login screen, Firefox, VS Code, IntelliJ, Telegram, Vesktop and Spotify (Spicetify) when you have them installed.
+Hyprland desktop for Arch Linux where the whole system takes its colours from the current wallpaper. Pick a wallpaper and the bar, launcher, notifications, terminal, lock screen, GTK and Qt apps, folder icons, btop and fzf recolour to match (terminal red/green/blue/cyan keep their meaning but take a tint from the wallpaper), along with the login screen, a Neovim palette (`~/.local/state/rice/nvim-palette.lua`, a Lua table for your colorscheme to read), Firefox, VS Code, IntelliJ, Telegram, Vesktop and Spotify (Spicetify) when you have them installed.
 
 ## What's in it
 
 | Part | Program |
 | --- | --- |
 | Compositor | Hyprland (started through uwsm) |
-| Bar | Waybar |
+| Bar | Waybar (click the clock for a calendar pop-up, GTK4 layer-shell) |
 | Launcher, clipboard, power menu, wallpaper picker | Rofi |
 | Notifications | dunst |
 | Volume / brightness pop-up | SwayOSD |
@@ -119,7 +119,8 @@ packages/   pacman and AUR package lists
 ## Credits
 
 - [Rosé Pine](https://rosepinetheme.com) GTK and Kvantum themes, used as recolour templates
-- Sugar Candy SDDM theme by Marian Arlt, the base of the login screen
+- Sugar Candy SDDM theme by Marian Arlt, the base of the old login screen
+- [Lucide](https://lucide.dev) icon shapes (ISC License) for the login screen power buttons
 - JetBrains Islands Dark theme, the base of the IntelliJ theme
 - Telegram Desktop's default palette from [desktop-app/lib_ui](https://github.com/desktop-app/lib_ui), the base of the Telegram theme
 - [Rubik](https://fonts.google.com/specimen/Rubik) font (SIL Open Font License)

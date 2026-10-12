@@ -60,6 +60,13 @@ PAPIRUS_FOLDER_HUES = {
 }
 MIN_HUE_DISTANCE = 0.06
 GRAYSCALE_SATURATION = 0.12
+SEMANTIC_HUES = {"red": 0.985, "yellow": 0.11, "green": 0.33, "teal": 0.45, "cyan": 0.52, "blue": 0.6}
+SEMANTIC_ACCENT_SNAP = 0.035
+SEMANTIC_BASE_PULL = 0.06
+SEMANTIC_SATURATION = 0.62
+SEMANTIC_GRAYSCALE_SATURATION = 0.32
+NVIM_PALETTE = STATE_DIR / "nvim-palette.lua"
+FZF_COLORS = STATE_DIR / "fzf-colors"
 
 
 class Color:
@@ -224,11 +231,42 @@ def dunst_conf(p):
     ])
 
 
+def terminal_background(p):
+    return p["base"].tone(0.1, min(p["base"].saturation, 0.25))
+
+
+def terminal_foreground(p):
+    return p["text"].tone(0.84, min(p["text"].saturation, 0.12))
+
+
+def semantic_color(p, anchor, lightness):
+    anchor_color = Color(anchor, lightness, 0)
+    saturation = SEMANTIC_GRAYSCALE_SATURATION if p["petal"].saturation < GRAYSCALE_SATURATION * 1.5 else SEMANTIC_SATURATION
+    for name in ("petal", "ember", "gold"):
+        if hue_distance(anchor_color, p[name]) < SEMANTIC_ACCENT_SNAP and nearest_semantic_anchor(p[name]) == anchor:
+            return Color(p[name].hue, lightness, saturation)
+    toward_base = (p["base"].hue - anchor + 0.5) % 1.0 - 0.5
+    return Color(anchor + toward_base * SEMANTIC_BASE_PULL, lightness, saturation)
+
+
+def nearest_semantic_anchor(color):
+    return min(SEMANTIC_HUES.values(), key=lambda anchor: hue_distance(color, Color(anchor, 0, 0)))
+
+
+def semantic_colors(p):
+    colors = {}
+    for name, anchor in SEMANTIC_HUES.items():
+        colors[name] = semantic_color(p, anchor, 0.68)
+        colors[name + "_bright"] = semantic_color(p, anchor, 0.76)
+    return colors
+
+
 def kitty_conf(p):
-    background = p["base"].tone(0.1, min(p["base"].saturation, 0.25))
-    foreground = p["text"].tone(0.84, min(p["text"].saturation, 0.12))
+    background = terminal_background(p)
+    foreground = terminal_foreground(p)
     surface = background.tone(0.18, background.saturation)
     selection = p["petal"].tone(0.3, 0.35)
+    semantic = semantic_colors(p)
     return "".join(f"{key} {value}\n" for key, value in [
         ("background", background.hex()),
         ("foreground", foreground.hex()),
@@ -246,6 +284,14 @@ def kitty_conf(p):
         ("inactive_tab_foreground", p["muted"].hex()),
         ("color0", surface.hex()),
         ("color8", p["muted"].hex()),
+        ("color1", semantic["red"].hex()),
+        ("color9", semantic["red_bright"].hex()),
+        ("color2", semantic["green"].hex()),
+        ("color10", semantic["green_bright"].hex()),
+        ("color4", semantic["blue"].hex()),
+        ("color12", semantic["blue_bright"].hex()),
+        ("color6", semantic["cyan"].hex()),
+        ("color14", semantic["cyan_bright"].hex()),
         ("color3", p["gold"].hex()),
         ("color11", p["gold"].hex()),
         ("color5", p["petal"].hex()),
@@ -304,6 +350,49 @@ def render_gtk_theme(replacements):
 def render_kvantum_theme(replacements):
     write(KVANTUM_THEME / "Rice.svg", recolor((KVANTUM_TEMPLATE / "RosePine.svg").read_text(), replacements))
     write(KVANTUM_THEME / "Rice.kvconfig", recolor((KVANTUM_TEMPLATE / "RosePine.kvconfig").read_text(), replacements))
+
+
+def nvim_palette(p):
+    background = terminal_background(p)
+    semantic = semantic_colors(p)
+    float_background = background.tone(0.12, background.saturation)
+    entries = {
+        "bg": background,
+        "bg_float": float_background,
+        "bg_light": background.tone(0.13, background.saturation),
+        "bg_lighter": background.tone(0.18, background.saturation),
+        "bg_highlight": background.tone(0.21, background.saturation),
+        "bg_visual": p["petal"].tone(0.27, 0.35),
+        "fg": terminal_foreground(p),
+        "fg_bright": p["text"],
+        "fg_dim": p["soft"],
+        "fg_muted": p["muted"],
+        "accent": p["petal"],
+        "accent_bright": p["petal"].tone(0.8, p["petal"].saturation),
+        "accent_dim": p["petal"].tone(0.42, min(p["petal"].saturation, 0.5)),
+        "red": semantic["red"],
+        "yellow": semantic["yellow"],
+        "green": semantic["green"],
+        "teal": semantic["teal"],
+        "cyan": semantic["cyan"],
+        "blue": semantic["blue"],
+        "magenta": p["petal"],
+        "orange": p["ember"],
+        "pink": p["blush"],
+    }
+    return "return {\n" + "".join(f'  {name} = "{color.hex()}",\n' for name, color in entries.items()) + "}\n"
+
+
+def fzf_colors(p):
+    surface = terminal_background(p).tone(0.2, min(p["base"].saturation, 0.25))
+    roles = {
+        "fg": "-1", "bg": "-1", "hl": p["petal"].hex(),
+        "fg+": p["text"].hex(), "bg+": surface.hex(), "hl+": p["petal"].hex(),
+        "info": p["muted"].hex(), "prompt": p["petal"].hex(), "pointer": p["ember"].hex(),
+        "marker": p["gold"].hex(), "spinner": p["ember"].hex(), "header": p["muted"].hex(),
+        "border": p["wine"].hex(), "label": p["soft"].hex(), "query": p["text"].hex(), "gutter": "-1",
+    }
+    return "--color=" + ",".join(f"{role}:{value}" for role, value in roles.items()) + "\n"
 
 
 def hyprland_borders(p):
@@ -741,29 +830,18 @@ def render_firefox(p):
 
 
 def sddm_conf(p, background):
-    s = app_surfaces(p)
     entries = {
         "Background": background,
-        "BackgroundS": background,
-        "DimBackgroundImage": "0.15",
-        "ScreenWidth": "2560",
-        "ScreenHeight": "1440",
-        "FullBlur": "false",
-        "PartialBlur": "true",
-        "BlurRadius": "48",
-        "HaveFormBackground": "true",
-        "FormPosition": "left",
-        "MainColor": p["text"].hex(),
-        "AccentColor": p["petal"].hex(),
-        "BackgroundColor": s[0.08].hex(),
-        "OverrideLoginButtonTextColor": s[0.08].hex(),
-        "InterfaceShadowSize": "4",
-        "InterfaceShadowOpacity": "0.4",
-        "RoundCorners": "14",
+        "Dim": "0.45",
+        "Blur": "1.0",
         "Font": "Rubik",
-        "HourFormat": "HH:mm",
-        "DateFormat": "dddd d. MMMM",
-        "HeaderText": "",
+        "HourColor": p["petal"].hex(),
+        "MinuteColor": p["ember"].hex(),
+        "TextColor": p["text"].hex(),
+        "MutedColor": p["soft"].hex(),
+        "FieldColor": p["base"].hex(),
+        "FieldBorderColor": p["petal"].hex(),
+        "FailColor": p["petal"].hex(),
     }
     return "[General]\n" + "".join(f'{key}="{value}"\n' for key, value in entries.items())
 
@@ -1128,6 +1206,8 @@ def main():
     write(STATE_DIR / "colors.rasi", rofi_rasi(palette))
     write(STATE_DIR / "hyprland-colors.conf", "".join(f"${name} = {value}\n" for name, value in borders.items()))
     write(STATE_DIR / "kitty-colors.conf", kitty_conf(palette))
+    write(NVIM_PALETTE, nvim_palette(palette))
+    write(FZF_COLORS, fzf_colors(palette))
     write(STATE_DIR / "hyprlock-colors.conf", hyprlock_colors(palette))
     write(DUNST_DROPIN, dunst_conf(palette))
     write(BTOP_THEME, btop_theme(palette))
